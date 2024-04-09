@@ -12,8 +12,6 @@ import {
   const nc = await connect({
     servers: "nats://localhost:4222",
   });
-
-  console.log(process.env)
   
   const js = nc.jetstream();  
 
@@ -23,7 +21,12 @@ import {
 
   var data = {item: 'testi', filepath: 'tests/images/test.png', task: 'rotate', params: {"rotate": 90}}
 
-  await js.publish("process.md-imaginary", jc.encode(data))
 
+  //await js.publish("process.md-imaginary", jc.encode(data))
+  await js.publish("process.md-imaginary", JSON.stringify(data))
+
+  var data = {item: 'testi', filepath: 'tests/images/test2_faulty.png', task: 'rotate', params: {"rotate": 90}}
   
+  await js.publish("process.md-imaginary", JSON.stringify(data))
+
   await nc.close()
