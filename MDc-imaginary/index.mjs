@@ -17,6 +17,7 @@ import {
 
 import {
     connect,
+    AckPolicy,
     JSONCodec
   } from "nats";
 
@@ -33,13 +34,21 @@ const DEV_URL = process.env.DEV_URL || null
 
 printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
-let nc, js, jsm, jc, c;
+let nc, js, jsm, jc, c, consumer_app_id;
+
+process.on( 'SIGINT', async function() {
+    await got.delete(`${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`)
+    await nc.close()
+	process.exit( );
+})
+
 
 try {
     nc = await connect({servers: NATS_URL});
     js = nc.jetstream();  
     jsm = await js.jetstreamManager();
     jc = JSONCodec()
+    consumer_app_id = uuidv4()
 
     const ci = await jsm.consumers.info("PROCESS", NAME);
     console.log(ci)
@@ -47,12 +56,15 @@ try {
     var lister = await jsm.consumers.list("PROCESS")
     for await (const item of lister) {
         console.log(item);
-      }
-    //var y = await p.next()
-    //console.log(p)
-    // console.log(await y.info())
-
+    }
     c = await js.consumers.get("PROCESS", NAME);
+
+    // tell MessyDesk that we are now listening messages
+    const url = `${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`
+    console.log('registering consumer: ', url)
+    var resp = await got.post(url).json()
+    console.log(resp)
+
 } catch(e) {
     console.log(`ERROR: Problem with NATS on ${NATS_URL}\n with consumer "${NAME}" in stream ${STREAM}`)
     console.log( e.message)
