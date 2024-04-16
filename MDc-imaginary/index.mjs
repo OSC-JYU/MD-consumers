@@ -36,6 +36,7 @@ printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
 let nc, js, jsm, jc, c, consumer_app_id;
 
+// when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
     await got.delete(`${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`)
     await nc.close()
@@ -94,9 +95,9 @@ if (c) {
 
         const iter = await c.fetch();
         for await (const m of iter) {
-            // console.log(m.string())
+            
             console.log(m.info)
-            await process_msg(service_url, m.data)
+            await process_msg(service_url, m)
             // inProgress() to indicate that the processing of the message is still on-going and more time is needed (before the message is considered for being sent again)
             // https://docs.nats.io/using-nats/developer/anatomy
             m.ack();
@@ -105,17 +106,32 @@ if (c) {
 }
 
 
-async function process_msg(service_url, payload) {
+async function process_msg(service_url, message) {
+
+    let payload, data
+    const url_md = `${MD_URL}/api/nomad/process/files`
+
+    // make sure that we have valid payload
+    try {
+        payload = message.json()
+        data = JSON.parse(payload)
+    } catch (e) {
+        console.log('invalid message payload!', e.message)
+        await sendError({}, {error: 'invalid message payload!'}, url_md)
+    }
 
     try {
-        var data = JSON.parse(payload)
+
+        console.log(typeof data)
+        console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** IMAGINARY api ***************')
         console.log(data)
+        console.log(data.target)
         
         // get file from MessyDesk and put it in formdata
-        var readpath = await getFile(MD_URL, data.target)
+        var readpath = await getFile(MD_URL, data.target, data.userId)
         const readStream = fs.createReadStream(readpath);
         const formData = new FormData();
         formData.append('file', readStream);
@@ -123,6 +139,7 @@ async function process_msg(service_url, payload) {
         // send payload to service endpoint and save result locally
         const url_params = objectToURLParams(data.params)
         var url = `${service_url}/${data.task}?${url_params}`
+        console.log(url)
         const postStream = got.stream.post(url, {
             body: formData,
             headers: formData.getHeaders(),
@@ -132,16 +149,26 @@ async function process_msg(service_url, payload) {
         const writepath = path.join('data', dirname)
         const writeStream = fs.createWriteStream(writepath);
      
+        writeStream
+        .on("error", (error) => {
+          console.error(`Reading failed: ${error.message}`);
+        });
+    
+      postStream
+        .on("error", (error) => {
+          console.error(`Post failed: ${error.message}`);
+        })
+    
+
         await pipeline(postStream, writeStream)
 
-
+       
         // finally send result and original message to MessyDesk
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
         formData_md.append('content', readStream_md);
         formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
 
-        const url_md = `${MD_URL}/api/nomad/process/files`
         const postStream_md = got.stream.post(url_md, {
             body: formData_md,
             headers: formData_md.getHeaders(),
@@ -150,11 +177,58 @@ async function process_msg(service_url, payload) {
         await pipeline(postStream_md, new stream.PassThrough())
         console.log('file sent!')
 
+
+        // TODO: fix this so that code is not duplicated!
+        // if this is thumbnail message, then create also smaller thumbnail
+         if(data.id == 'thumbnailer') {
+            console.log('sprocessing smaller thumb')
+            const readStream_small = fs.createReadStream(writepath);
+            const formData_small = new FormData();
+            formData_small.append('file', readStream_small);
+            
+            // send payload to service endpoint and save result locally
+            data.params.size = 200
+            data.thumb_name = 'thumbnail.jpg'
+            const url_params_small = objectToURLParams(data.params)
+            var url = `${service_url}/${data.task}?${url_params_small}`
+            const postStream_small = got.stream.post(url, {
+                body: formData_small,
+                headers: formData_small.getHeaders(),
+            });
+
+            var dirname = uuidv4()
+            const writepath_small = path.join('data', dirname)
+            const writeStream_small = fs.createWriteStream(writepath_small);
+         
+            await pipeline(postStream_small, writeStream_small)
+
+            // finally send result and original message to MessyDesk
+            const readStream_small_thumb = fs.createReadStream(writepath_small);
+            const formData_thumb = new FormData();
+            formData_thumb.append('content', readStream_small_thumb);
+            formData_thumb.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+
+            const postStream_small_thumb = got.stream.post(url_md, {
+                body: formData_thumb,
+                headers: formData_thumb.getHeaders(),
+            });
+            
+            await pipeline(postStream_small_thumb, new stream.PassThrough())
+            console.log('smaller file sent!')
+         }
+
     } catch (error) {
+        console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
         console.error('imaginary_api: Error reading, sending, or saving the image:', error.message);
+
+        sendError(data, error, url_md)
     }
+}
+
+async function sendError(data, error, url_md) {
+    await got.post(url_md + '/error', {json: {error:error}})
 }
 
 await nc.close()

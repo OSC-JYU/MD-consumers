@@ -39,15 +39,26 @@ export async function createService(md_url, service) {
   }
 }
 
-export async function getFile(md_url, file_rid) {
+
+
+export async function getFile(md_url, file_rid, user) {
   var filename = uuidv4()
   const writepath = path.join('data', 'source', filename)
+  console.log('getfile')
+  console.log(writepath)
+  console.log(file_rid)
   const fileWriterStream = createWriteStream(writepath);
 
+  file_rid = file_rid.replace('#','')
   const file_url = `${md_url}/api/files/${file_rid}`
-  //got.stream(file_url).pipe(createWriteStream('data/source/image.png'));
 
-  const downloadStream = got.stream(file_url);
+  const options = {
+    headers: {
+      mail: user
+    }
+  };
+
+  const downloadStream = got.stream(file_url, options);
 
   downloadStream
     .on("error", (error) => {
@@ -69,6 +80,8 @@ export async function getFile(md_url, file_rid) {
   }
 
 }
+
+
 
 export function objectToURLParams(obj) {
     const params = [];
