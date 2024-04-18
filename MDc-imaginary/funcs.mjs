@@ -10,18 +10,18 @@ export async function getServiceURL(nomad_url, service, dev_url) {
 	// NOTE: this gives only the first address
 	const url = nomad_url + `/service/${service}`
 	var service_url = ''
-    try {
-        var response = await got.get(url).json()
-        //console.log(response)
-        if(response.length > 0) {
-            service_url = `${response[0].Address}:${response[0].Port}`
-        }
-    } catch(e) {
-        if(e.code == 'ECONNREFUSED')
-          throw(`Nomad not found from ${nomad_url}`)
-        else
-          throw('Error in nomad query:' , e.code)
-    }
+  try {
+      var response = await got.get(url).json()
+      //console.log(response)
+      if(response.length > 0) {
+          service_url = `${response[0].Address}:${response[0].Port}`
+      }
+  } catch(e) {
+      if(e.code == 'ECONNREFUSED')
+        throw(`Nomad not found from ${nomad_url}`)
+      else
+        throw('Error in nomad query:' , e.code)
+  }
 	return service_url
 }
 
@@ -30,7 +30,7 @@ export async function getServiceURL(nomad_url, service, dev_url) {
 export async function createService(md_url, service) {
   const url = md_url + `/api/nomad/service/${service}/create`
   try {
-      var response = await got.post(url).json()       
+      var response = await got.post(url).json()   
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
         throw(`Messydesk not found from ${md_url}`)
