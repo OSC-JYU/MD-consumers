@@ -41,7 +41,7 @@ async function sleep(ms) {
 export async function createService(md_url, service) {
   const url = md_url + `/api/nomad/service/${service}/create`
   try {
-      var response = await got.post(url).json()       
+      var response = await got.post(url).json()   
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
         throw(`Messydesk not found from ${md_url}`)

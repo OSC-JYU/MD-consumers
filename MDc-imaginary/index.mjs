@@ -86,9 +86,13 @@ if (c) {
                 console.log(NAME, ': no service found')
                 console.log('starting service...')
                 await createService(MD_URL, NAME)
-                console.log('service started!')
-                service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL, WAIT) 
-                console.log('service_url:', service_url)
+                service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL) 
+                if(service_url) {
+                    console.log('service started!')
+                    console.log('service_url:', service_url)
+                } else {
+                    console.log('Could not get service URL! \ntrying again...')
+                }
             }
         } catch(e) {
             console.log('ERROR:' ,e)
