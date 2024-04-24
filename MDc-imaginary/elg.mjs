@@ -12,7 +12,8 @@ import {
     createService, 
     objectToURLParams,
     printInfo, 
-    getFile
+    getFile,
+    getFilesFromStore
 } from './funcs.mjs';
 
 import {
@@ -128,102 +129,71 @@ async function process_msg(service_url, message) {
         console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
-        console.log('**************** IMAGINARY api ***************')
+        console.log('**************** ELG api ***************')
         console.log(data)
         console.log(data.target)
+        console.log(payload)
         
         // get file from MessyDesk and put it in formdata
         var readpath = await getFile(MD_URL, data.target, data.userId)
         const readStream = fs.createReadStream(readpath);
         const formData = new FormData();
-        formData.append('file', readStream);
-        
-        // send payload to service endpoint and save result locally
-        const url_params = objectToURLParams(data.params)
-        var url = `${service_url}/${data.task}?${url_params}`
+        formData.append('content', readStream);
+    
+
+        // provide parameters as json format
+        formData.append('request', JSON.stringify(payload), {contentType: 'application/json', filename: 'request.json'});
+
+
+        // send payload to service endpoint 
+        var url = `${service_url}/process`
         console.log(url)
-        const postStream = got.stream.post(url, {
+        const response = await got.post(url, {
             body: formData,
             headers: formData.getHeaders(),
         });
         
-        var dirname = uuidv4()
-        const writepath = path.join('data', dirname)
-        const writeStream = fs.createWriteStream(writepath);
+
+        //console.log(response)
+        const file_list = JSON.parse(response.body)
+        console.log(file_list)
+        await getFilesFromStore(file_list.response, service_url, data, url_md)
      
-        writeStream
-        .on("error", (error) => {
-          console.error(`Reading failed: ${error.message}`);
-        });
-    
-      postStream
-        .on("error", (error) => {
-          console.error(`Post failed: ${error.message}`);
-        })
+        // writeStream
+        // .on("error", (error) => {
+        //   console.error(`Reading failed: ${error.message}`);
+        // });
     
 
-        await pipeline(postStream, writeStream)
+
+       // await pipeline(postStream, writeStream)
 
        
         // finally send result and original message to MessyDesk
-        const readStream_md = fs.createReadStream(writepath);
-        const formData_md = new FormData();
-        formData_md.append('content', readStream_md);
-        formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+        // const readStream_md = fs.createReadStream(writepath);
+        // const formData_md = new FormData();
+        // formData_md.append('content', readStream_md);
+        // formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
 
-        const postStream_md = got.stream.post(url_md, {
-            body: formData_md,
-            headers: formData_md.getHeaders(),
-        });
+        // const postStream_md = got.stream.post(url_md, {
+        //     body: formData_md,
+        //     headers: formData_md.getHeaders(),
+        // });
         
-        await pipeline(postStream_md, new stream.PassThrough())
-        console.log('file sent!')
+        // await pipeline(postStream_md, new stream.PassThrough())
+        // console.log('file sent!')
 
 
         // TODO: fix this so that code is not duplicated!
         // if this is thumbnail message, then create also smaller thumbnail
-         if(data.id == 'thumbnailer') {
-            console.log('sprocessing smaller thumb')
-            const readStream_small = fs.createReadStream(writepath);
-            const formData_small = new FormData();
-            formData_small.append('file', readStream_small);
-            
-            // send payload to service endpoint and save result locally
-            data.params.size = 200
-            data.thumb_name = 'thumbnail.jpg'
-            const url_params_small = objectToURLParams(data.params)
-            var url = `${service_url}/${data.task}?${url_params_small}`
-            const postStream_small = got.stream.post(url, {
-                body: formData_small,
-                headers: formData_small.getHeaders(),
-            });
 
-            var dirname = uuidv4()
-            const writepath_small = path.join('data', dirname)
-            const writeStream_small = fs.createWriteStream(writepath_small);
-         
-            await pipeline(postStream_small, writeStream_small)
-
-            // finally send result and original message to MessyDesk
-            const readStream_small_thumb = fs.createReadStream(writepath_small);
-            const formData_thumb = new FormData();
-            formData_thumb.append('content', readStream_small_thumb);
-            formData_thumb.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
-
-            const postStream_small_thumb = got.stream.post(url_md, {
-                body: formData_thumb,
-                headers: formData_thumb.getHeaders(),
-            });
-            
-            await pipeline(postStream_small_thumb, new stream.PassThrough())
-            console.log('smaller file sent!')
-         }
 
     } catch (error) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.error('imaginary_api: Error reading, sending, or saving the image:', error.message);
+        console.log(error)
+        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
         sendError(data, error, url_md)
     }
