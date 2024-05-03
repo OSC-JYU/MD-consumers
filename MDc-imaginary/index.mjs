@@ -77,23 +77,21 @@ try {
 
 if (c) {
     var service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL)
-    console.log('service: ', service_url)
-    if(service_url) console.log(NAME, ': ready for messages...')
+    if(service_url) {
+        console.log(NAME, ': ready for messages...')
+        console.log('service: ', service_url)
+    } else {
+        console.log(NAME, ': no service found')
+        console.log('starting service...')
+        await createService(MD_URL, NAME)      
+    }
+    
     while (true) {
         try {
-            service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL, )    
-            if(!service_url) {
-                console.log(NAME, ': no service found')
-                console.log('starting service...')
-                await createService(MD_URL, NAME)
-                service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL) 
-                if(service_url) {
-                    console.log('service started!')
-                    console.log('service_url:', service_url)
-                } else {
-                    console.log('Could not get service URL! \ntrying again...')
-                }
-            }
+            var service_url = await getService()
+            console.log('service: ', service_url)
+            if(service_url) console.log(NAME, ': ready for messages...')
+
         } catch(e) {
             console.log('ERROR:' ,e)
             process.exit(0)
@@ -112,6 +110,20 @@ if (c) {
 }
 
 
+async function getService() {
+    var service_url = ''
+    while(service_url == '') {
+        console.log('waiting for service...')
+        service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL)
+        await sleep(2000)
+    }
+    return service_url
+}
+
+// sleep
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}       
 async function process_msg(service_url, message) {
 
     let payload, data
