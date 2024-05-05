@@ -43,10 +43,11 @@ export async function createService(md_url, service) {
   try {
       var response = await got.post(url).json()   
   } catch(e) {
+    console.log('pam')
       if(e.code == 'ECONNREFUSED')
         throw(`Messydesk not found from ${md_url}`)
       else
-        throw('Error in starting service with MessyDesk API query:' , e.code)
+        throw('Error in starting service with MessyDesk API query:' , e.response.body)
   }
 }
 

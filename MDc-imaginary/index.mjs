@@ -83,7 +83,13 @@ if (c) {
     } else {
         console.log(NAME, ': no service found')
         console.log('starting service...')
-        await createService(MD_URL, NAME)      
+        try {
+            await createService(MD_URL, NAME)  
+        } catch(e) {
+            console.log('Error in starting service with MessyDesk API:', e)
+            console.log('Write nomad.hcl and place in services directory or run service manually and provide url with DEV_URL')
+            process.exit(1)
+        }     
     }
     
     while (true) {
