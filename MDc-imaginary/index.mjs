@@ -47,6 +47,7 @@ process.on( 'SIGINT', async function() {
 
 
 try {
+    console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
     js = nc.jetstream();  
     jsm = await js.jetstreamManager();
@@ -255,4 +256,4 @@ async function sendError(data, error, url_md) {
     await got.post(url_md + '/error', {json: {error:error}})
 }
 
-await nc.close()
+if(nc) await nc.close()
