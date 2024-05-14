@@ -6,6 +6,7 @@ import path from 'path';
 import FormData from 'form-data';
 import stream from 'node:stream';
 
+const KEEP_FILENAME = 1
 
 export async function getServiceURL(nomad_url, service, dev_url, wait) {
   if(dev_url) return dev_url
@@ -43,7 +44,6 @@ export async function createService(md_url, service) {
   try {
       var response = await got.post(url).json()   
   } catch(e) {
-    console.log('pam')
       if(e.code == 'ECONNREFUSED')
         throw(`Messydesk not found from ${md_url}`)
       else
@@ -122,15 +122,16 @@ export async function getFilesFromStore(response, service_url, message, md_url) 
       // download array of files
       if(Array.isArray(response.uri)) {
         for(var url of response.uri) {
-          const filedata = await saveFile(url, service_url)
-          await streamFile(filedata, message, md_url)
+          // if service return array of files, then we keep those filenames
+          const filedata = await downloadFile(url, service_url, KEEP_FILENAME)
+          await sendFile(filedata, message, md_url)
         }
       // download single file
       } else {
         // first, create file object to graph
         // process_rid, file_type, extension, label
-        const filedata = await saveFile(response.uri, service_url)
-        await streamFile(filedata, message, md_url)
+        const filedata = await downloadFile(response.uri, service_url)
+        await sendFile(filedata, message, md_url)
       }
     } else {
       console.log('File download not found!')
@@ -139,7 +140,7 @@ export async function getFilesFromStore(response, service_url, message, md_url) 
 
 
 
-async function saveFile(file_url, service_url) {
+async function downloadFile(file_url, service_url, keep_filename) {
 
   const uuid = uuidv4()
   var ext = path.extname(file_url).replace('.', '')
@@ -152,16 +153,22 @@ async function saveFile(file_url, service_url) {
   const readStream = got.stream(service_url + file_url)
   const writeStream = createWriteStream(filepath)
   await pipeline(readStream, writeStream)
-  return {path:filepath, type: type, ext: ext}
+  if(keep_filename) 
+    return {path:filepath, type: type, ext: ext, label: path.basename(file_url)}
+  else
+    return {path:filepath, type: type, ext: ext}
 }
 
 
 
-async function streamFile(filedata, message, md_url) {
+async function sendFile(filedata, message, md_url) {
 
   message.file.type = filedata.type
   message.file.extension = filedata.ext
   message.file.label = message.file.label + '.' + filedata.ext
+  
+  if(filedata.label)
+    message.file.label = filedata.label
 
   const readStream = createReadStream(filedata.path);
   const formData = new FormData();
