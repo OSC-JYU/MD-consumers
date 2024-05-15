@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { 
     getServiceURL, 
     createService, 
-    objectToURLParams,
+    sendTextFile,
     printInfo
 } from './funcs.mjs';
 
@@ -159,13 +159,15 @@ async function process_msg(service_url, message) {
         console.log(payload)
     
         // send payload to service endpoint
-        const client = new OpenAIClient(DEV_URL, new AzureKeyCredential(azureApiKey));
-        const deploymentId = "gpt-4";
-        const result = await client.getChatCompletions(deploymentId, data.params.prompts);
+        // const client = new OpenAIClient(DEV_URL, new AzureKeyCredential(azureApiKey));
+        // const deploymentId = "gpt-4";
+        // const result = await client.getChatCompletions(deploymentId, data.params.prompts);
       
-        for (const choice of result.choices) {
-          console.log(choice.message);
-        }
+        // for (const choice of result.choices) {
+        //   console.log(choice.message);
+        // }
+        const filedata = {label:'testi.txt', content: 'tämä on testi', type: 'text', ext: 'txt'}
+        sendTextFile(filedata, data, url_md)
 
 
 

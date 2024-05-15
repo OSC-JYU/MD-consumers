@@ -187,6 +187,42 @@ async function sendFile(filedata, message, md_url) {
     console.log('File not streamed')
 }
 
+
+
+export async function sendTextFile(filedata, message, md_url) {
+
+  message.file.type = filedata.type
+  message.file.extension = filedata.ext
+  
+  if(filedata.label)
+    message.file.label = filedata.label
+
+  const textBuffer = Buffer.from(filedata.content, 'utf-8');
+  const formData = new FormData();
+
+  // Append the text file to the form data
+  formData.append('content', textBuffer, {
+    filename: filedata.label,
+    contentType: 'text/plain', // Set the content type to text/plain
+  });
+
+  formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
+
+
+  const response = await got.post(md_url, {
+    body: formData,
+    headers: {
+      ...formData.getHeaders(),
+    }
+  });
+
+  if(response.ok)
+    console.log('File send successfully')
+  else 
+    console.log('File not streamed')
+}
+
+
   export function printInfo(name, nomad_url, nats_url, md_url) {
 
     console.log('MessyDesk consumer: ', name)
