@@ -1,5 +1,6 @@
 
-import { OpenAIClient, AzureKeyCredential } from "@azure/openai";
+import Replicate from "replicate";
+
 import got from 'got'
 import { v4 as uuidv4 } from 'uuid';
 
@@ -8,7 +9,7 @@ import {
     createService, 
     sendTextFile,
     getFile,
-    getTextFromFile,
+    getFileBuffer,
     printInfo
 } from './funcs.mjs';
 
@@ -16,7 +17,7 @@ import {
     connect,
     AckPolicy,
     JSONCodec
-  } from "nats";
+} from "nats";
 
 // consumer and service name
 const NAME = process.env.NAME || 'thumbnailer'
@@ -36,6 +37,9 @@ const azureApiKey = process.env["AZURE_OPENAI_API_KEY"]
 printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
 let nc, js, jsm, jc, c, consumer_app_id;
+
+const replicate = new Replicate();
+
 
 // when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
@@ -151,36 +155,26 @@ async function process_msg(service_url, message) {
 
     try {
 
-        console.log(typeof data)
-        console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
-        console.log(service_url)
-        console.log('**************** ELG api text ***************')
-        console.log(data)
-        console.log(data.target)
-        console.log(payload)
 
+        console.log(service_url)
+        console.log('**************** ELG api replicate ***************')
+        console.log(data)
+    
         var readpath = await getFile(MD_URL, data.target, data.userId)
-        var text = await getTextFromFile(readpath, 2000)
+        var image = await getFileBuffer(readpath)
     
         // send payload to service endpoint
-        var AIresponse = ''
-        if(data.params.prompts) {
-            data.params.prompts.push({role: 'user', content: text})
-            const client = new OpenAIClient(DEV_URL, new AzureKeyCredential(azureApiKey));
-            const deploymentId = "gpt-4";
-            const result = await client.getChatCompletions(deploymentId, data.params.prompts);
-          
-            for (const choice of result.choices) {
-              console.log(choice.message);
-              AIresponse += choice.message.content
-            }
-        } else {
-            console.log('ERROR: Prompts not found')
-        }
+        const input = {
+            image: image,
+            prompt: "This is an alt text description. What can be seen in the front? what can be seen in the back? Is the photo coloured or black and white? indicate in the description if there's text in the picture. Do not use words image or picture in the description. Don't count the amount of things"
+        };
+        
+        const output = await replicate.run("yorickvp/llava-13b:b5f6212d032508382d61ff00469ddda3e32fd8a0e75dc39d8a4191bb742157fb", { input });
+        console.log(output.join(""));
 
-        const filedata = {label:'result.json', content: AIresponse, type: 'data', ext: 'json'}
-        sendTextFile(filedata, data, url_md)
+       const filedata = {label:'alt.txt', content: output.join(""), type: 'text', ext: 'txt'}
+       await sendTextFile(filedata, data, url_md)
 
 
 

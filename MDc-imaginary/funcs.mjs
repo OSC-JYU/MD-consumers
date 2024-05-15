@@ -5,6 +5,9 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import FormData from 'form-data';
 import stream from 'node:stream';
+import { promises as fs } from 'fs';
+
+
 
 const KEEP_FILENAME = 1
 
@@ -222,6 +225,20 @@ export async function sendTextFile(filedata, message, md_url) {
     console.log('File not streamed')
 }
 
+export async function getTextFromFile(filepath, limit) {
+  console.log('reading file: ', filepath)
+  const text = await fs.readFile(filepath, 'utf8');
+  // limit text to 1000 chars
+  if(limit) {
+    if(text.length > limit) text = text.substring(0, limit)
+  }
+  return text
+}
+
+export async function getFileBuffer(filepath) {
+
+  return await fs.readFile(filepath)
+}
 
   export function printInfo(name, nomad_url, nats_url, md_url) {
 
