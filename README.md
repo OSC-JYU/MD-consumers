@@ -5,13 +5,19 @@ Work queue consumers for MessyDesk
 
 Consumers are small applications that consumes messages from the main work-queue of MessyDesk. This is the layer that knows the details of how to call certain service that will eventually do all the work. 
 
-In other words, consumers translates request from MessyDesk to API in question. There
+In other words, consumers translates request from MessyDesk to API in question. There are currently four consumers for different APIs:
 
-When consumer app is started, one must tell it the name of the service.
+    - api-elg.mjs - European Language Grid api 
+    - api-imagarinary.mjs  
+    - api-replicate.mjs
+    - api-azure-ai.mjs
+
+One must start right consumer for each service with the name of the service.
 
 	NAME=thumbnailer node api-imaginary.mjs
 
 The service "thumbnailer" is defined in /services/thumbnailer in MessyDesk's root directory.
+This will start the service IF IT HAS nomad.hcl
 
 
 Imaginary
@@ -29,6 +35,10 @@ Example:
 
 ELG is public API of European Language Grid. This app implements minimal combability.
 https://european-language-grid.readthedocs.io/en/release1.1.1/all/A2_API/LTPublicAPI.html
+
+https://european-language-grid.readthedocs.io/en/stable/all/A3_API/LTInternalAPI.html#
+
+https://www.lingsoft.fi/en/microservices-at-your-service-bridging-gap-between-nlp-research-and-industry
 
 
 
@@ -73,5 +83,5 @@ Call publish.mjs from tests directory:
 
 Start Nomad locally:
 
-    sudo nomad agent -dev   -bind 0.0.0.0   -network-interface='{{ GetDefaultInterfaces | attr "name" }}'
+    sudo nomad agent -dev 
 

@@ -187,7 +187,28 @@ async function process_msg(service_url, message) {
 
         await pipeline(postStream, writeStream)
 
+
+        // // get metadata
+        // try {
+        //     var url_info = `${service_url}/info`
+        //     console.log('sending info request to: ', url_info)
+        //     const readStream2 = fs.createReadStream(readpath);
+        //     const formData2 = new FormData();
+        //     formData2.append('file', readStream2);
+        //     const response_info = await got.post(url_info, {
+        //         body: formData2,
+        //         headers: formData2.getHeaders(),
+        //         responseType: 'json'
+        //     });
+        //     const info_json = response_info.body;
+        //     console.log(info_json)
+        // } catch(e) {
+        //     console.log(e)
+        // }
+
        
+
+
         // finally send result and original message to MessyDesk
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
@@ -204,9 +225,9 @@ async function process_msg(service_url, message) {
 
 
         // TODO: fix this so that code is not duplicated!
-        // if this is thumbnail message, then create also smaller thumbnail
+        // create smaller thumbnail also if this is a thumbnail request
          if(data.id == 'thumbnailer') {
-            console.log('sprocessing smaller thumb')
+            console.log('processing smaller thumb')
             const readStream_small = fs.createReadStream(writepath);
             const formData_small = new FormData();
             formData_small.append('file', readStream_small);

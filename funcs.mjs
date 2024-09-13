@@ -150,6 +150,15 @@ async function downloadFile(file_url, service_url, keep_filename) {
   var type = 'text'
   if(['png','jpg','jpeg'].includes(ext)) type = 'image'
   if(['pdf'].includes(ext)) type = 'pdf'
+  if(['xml'].includes(ext)) type = 'xml'
+  if(['json'].includes(ext)) type = 'json'
+
+  // JSON can have sub types like "human.json"
+  if(type == 'json') {
+    // if file_url contains do dots, then it is a sub type
+    type = extractDoubleExtension(file_url, type)
+
+  }
 
   const filepath = `data/${type}_${uuid}.${ext}`
 
@@ -190,6 +199,13 @@ async function sendFile(filedata, message, md_url) {
     console.log('File not streamed')
 }
 
+
+function extractDoubleExtension(fileName, type) {
+  if(!fileName) return type;
+  const parts = fileName.split('.');
+  if(parts.length < 2) return type;
+  return parts[parts.length - 2] + '.' + parts[parts.length - 1];
+}
 
 
 export async function sendTextFile(filedata, message, md_url) {
