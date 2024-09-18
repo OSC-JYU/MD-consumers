@@ -56,7 +56,10 @@ export async function createService(md_url, service) {
 
 
 
-export async function getFile(md_url, file_rid, user) {
+export async function getFile(md_url, file_rid, user, source) {
+  // if source is set, we fetch source file of the file_rid 
+  // pseudo query: ({File}->PROCESSED_BY->{Process}-PRODUCED->{File (where @rid = file_rid)})
+  (!source) ? source = '' : source = '/source'
   var filename = uuidv4()
   const writepath = path.join('data', 'source', filename)
   console.log('getfile')
@@ -65,7 +68,7 @@ export async function getFile(md_url, file_rid, user) {
   const fileWriterStream = createWriteStream(writepath);
 
   file_rid = file_rid.replace('#','')
-  const file_url = `${md_url}/api/files/${file_rid}`
+  const file_url = `${md_url}/api/files/${file_rid}${source}`
 
   const options = {
     headers: {

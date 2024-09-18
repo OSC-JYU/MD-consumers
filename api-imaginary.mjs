@@ -153,14 +153,61 @@ async function process_msg(service_url, message) {
         console.log(service_url)
         console.log('**************** IMAGINARY api ***************')
         console.log(data)
+        console.log('target:')
         console.log(data.target)
+        console.log('source: ', data.source)
+        console.log(data.source)
         
+        var sourceFile = false
+
+
+        // ******************* OSD_rotate *******************
+        // take care of special case of OSD rotate
+
+        if(data.task == 'OSD_rotate') {
+            try {
+                // read OSD json
+                var osd = await getFile(MD_URL, data.target, data.userId)
+                var json = await fs.readJSON(osd)
+                
+                data.task = 'rotate'
+                // change file to source file
+                data.file = data.source
+                data.target = data.source['@rid'].replace('#','')
+                if(!json.rotate) throw({error: 'no rotate in OSD', status: 'created_duplicate_source'}) 
+                data.params.rotate = json.rotate
+                
+            } catch(e) {
+                if(e.status == 'created_duplicate_source') {
+                    var readpath = await getFile(MD_URL, data.target, data.userId)
+                    const readStream_md = fs.createReadStream(readpath);
+                    const formData_md = new FormData();
+                    formData_md.append('content', readStream_md);
+                    formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+            
+                    const postStream_md = got.stream.post(url_md, {
+                        body: formData_md,
+                        headers: formData_md.getHeaders(),
+                    });
+                    
+                    await pipeline(postStream_md, new stream.PassThrough())
+                    console.log('file sent!')
+                }
+                throw('Error in OSD_rotate', e)  
+
+            }
+
+        }
+        // ******************* OSD_rotate *******************
+        
+
         // get file from MessyDesk and put it in formdata
         var readpath = await getFile(MD_URL, data.target, data.userId)
         const readStream = fs.createReadStream(readpath);
         const formData = new FormData();
         formData.append('file', readStream);
-        
+
+
         // send payload to service endpoint and save result locally
         const url_params = objectToURLParams(data.params)
         var url = `${service_url}/${data.task}?${url_params}`
@@ -187,28 +234,6 @@ async function process_msg(service_url, message) {
 
         await pipeline(postStream, writeStream)
 
-
-        // // get metadata
-        // try {
-        //     var url_info = `${service_url}/info`
-        //     console.log('sending info request to: ', url_info)
-        //     const readStream2 = fs.createReadStream(readpath);
-        //     const formData2 = new FormData();
-        //     formData2.append('file', readStream2);
-        //     const response_info = await got.post(url_info, {
-        //         body: formData2,
-        //         headers: formData2.getHeaders(),
-        //         responseType: 'json'
-        //     });
-        //     const info_json = response_info.body;
-        //     console.log(info_json)
-        // } catch(e) {
-        //     console.log(e)
-        // }
-
-       
-
-
         // finally send result and original message to MessyDesk
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
@@ -225,7 +250,7 @@ async function process_msg(service_url, message) {
 
 
         // TODO: fix this so that code is not duplicated!
-        // create smaller thumbnail also if this is a thumbnail request
+        //  if this is a thumbnail request then create smaller thumbnail also
          if(data.id == 'thumbnailer') {
             console.log('processing smaller thumb')
             const readStream_small = fs.createReadStream(writepath);
@@ -267,14 +292,15 @@ async function process_msg(service_url, message) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.error('imaginary_api: Error reading, sending, or saving the image:', error.message);
 
+        console.error('imaginary_api: Error reading, sending, or saving the image:', error.message);
         sendError(data, error, url_md)
+        
     }
 }
 
 async function sendError(data, error, url_md) {
-    await got.post(url_md + '/error', {json: {error:error}})
+    await got.post(url_md + '/error', {json:{error: error, data: data}})
 }
 
 if(nc) await nc.close()
