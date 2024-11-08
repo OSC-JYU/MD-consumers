@@ -247,7 +247,7 @@ export async function sendTextFile(filedata, message, md_url) {
 export async function getTextFromFile(filepath, limit) {
   console.log('reading file: ', filepath)
   const text = await fs.readFile(filepath, 'utf8');
-  // limit text to 1000 chars
+  // limit text 
   if(limit) {
     if(text.length > limit) text = text.substring(0, limit)
   }
