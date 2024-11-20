@@ -258,7 +258,7 @@ async function process_msg(service_url, message) {
             formData_small.append('file', readStream_small);
             
             // send payload to service endpoint and save result locally
-            data.params.size = 200
+            data.params.width = 200
             data.thumb_name = 'thumbnail.jpg'
             const url_params_small = objectToURLParams(data.params)
             var url = `${service_url}/${data.task}?${url_params_small}`

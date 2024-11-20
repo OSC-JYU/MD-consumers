@@ -154,6 +154,7 @@ async function process_msg(service_url, message) {
 
     try {
 
+        let index_data 
         console.log(typeof data)
         console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
@@ -162,26 +163,40 @@ async function process_msg(service_url, message) {
         //console.log(payload)
         console.log(JSON.stringify(data, null, 2))
         console.log(data.target)
+
+        if(data.task == 'index') {
+            // get file from MessyDesk and put it in formdata
+            var readpath = await getFile(MD_URL, data.target, data.userId)
+            // read content from file
+            const content = await getTextFromFile(readpath)
+
+            index_data = [{
+                id: data.file['@rid'],
+                label: data.file.label,
+                owner: data.userId,
+                node: data.file['@type'],
+                type: data.file.type,
+                description: data.file.description,
+                fulltext: content
+            }]
+
+        } else if(data.task == 'delete') {
+            console.log('deleting')
+            index_data = {
+                delete: data.target
+            }
+        }
         
-        // get file from MessyDesk and put it in formdata
-        var readpath = await getFile(MD_URL, data.target, data.userId)
-        // read content from file
-        const content = await getTextFromFile(readpath)
+        if(Array.isArray(index_data) && !index_data.length) {
+            console.log('no index data')
+            return
+        } 
 
-        var index_data = [{
-            id: data.file['@rid'],
-            label: data.file.label,
-            owner: data.userId,
-            node: data.file['@type'],
-            type: data.file.type,
-            description: data.file.description,
-            fulltext: content
-        }]
-
+        console.log(index_data)
         const options= {
             body: JSON.stringify(index_data),
             headers: {
-              'Content-Type': 'application/json'
+            'Content-Type': 'application/json'
             }
         };
 
@@ -189,9 +204,8 @@ async function process_msg(service_url, message) {
         var url = `${service_url}/solr/messydesk/update?commit=true`
         console.log(url)
         const response = await got.post(url, options)
-        console.log(response)
-        // const file_list = JSON.parse(response.body)
-        // console.log(file_list)
+        console.log(response.statusCode)
+
     
 
     } catch (error) {
@@ -199,7 +213,7 @@ async function process_msg(service_url, message) {
         console.log(error.status)
         console.log(error.code)
         console.log(error)
-        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
+        console.error('elg_api: Error in indexing:', error.message);
 
         sendError(data, error, url_md)
     }
