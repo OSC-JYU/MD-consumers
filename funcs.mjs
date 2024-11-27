@@ -121,6 +121,16 @@ export function objectToURLParams(obj) {
   }
 
 
+export function getPlainText(text) {
+  var lines = []
+  if(Array.isArray(text)) {
+    for(var t of text) {
+      lines.push(t[1][0])
+    }
+  }
+  return lines.join(' ')
+}
+
 export async function getFilesFromStore(response, service_url, message, md_url) {
 
     if(response.uri) {

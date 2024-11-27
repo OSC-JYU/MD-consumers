@@ -1,23 +1,27 @@
 
-import Replicate from "replicate";
-
+import path from 'path';
+import { pipeline } from 'stream/promises';
+import stream from 'node:stream';
+import fs from 'fs-extra';
+import FormData from 'form-data';
 import got from 'got'
 import { v4 as uuidv4 } from 'uuid';
 
 import { 
     getServiceURL, 
     createService, 
-    sendTextFile,
+    objectToURLParams,
+    printInfo, 
     getFile,
-    getFileBuffer,
-    printInfo
+    getPlainText
 } from './funcs.mjs';
 
 import {
     connect,
     AckPolicy,
     JSONCodec
-} from "nats";
+  } from "nats";
+import { write } from 'fs';
 
 // consumer and service name
 const NAME = process.env.NAME || 'thumbnailer'
@@ -32,14 +36,9 @@ const DEV_URL = process.env.DEV_URL || null
 
 const WAIT = true
 
-const azureApiKey = process.env["AZURE_OPENAI_API_KEY"] 
-
 printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
 let nc, js, jsm, jc, c, consumer_app_id;
-
-const replicate = new Replicate();
-
 
 // when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
@@ -80,7 +79,6 @@ try {
 
 
 if (c) {
-
     var service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL)
     if(service_url) {
         console.log(NAME, ': ready for messages...')
@@ -94,9 +92,10 @@ if (c) {
             console.log('Error in starting service with MessyDesk API:', e)
             console.log('Write nomad.hcl and place in services directory or run service manually and provide url with DEV_URL')
             process.exit(1)
-        }
-
-        // try until you get service_url
+        }     
+    }
+    
+    while (true) {
         try {
             var service_url = await getService()
             console.log('service: ', service_url)
@@ -106,9 +105,6 @@ if (c) {
             console.log('ERROR:' ,e)
             process.exit(0)
         }
-    }
-
-    while (true) {
 
         const iter = await c.fetch();
         for await (const m of iter) {
@@ -121,7 +117,6 @@ if (c) {
         }
     }
 }
-
 
 
 async function getService() {
@@ -137,8 +132,7 @@ async function getService() {
 // sleep
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}     
-
+}       
 async function process_msg(service_url, message) {
 
     let payload, data
@@ -155,26 +149,109 @@ async function process_msg(service_url, message) {
 
     try {
 
-        if(!service_url.startsWith('http')) service_url = 'http://' + service_url
-
-        console.log(service_url)
-        console.log('**************** ELG api replicate ***************')
+        console.log(typeof data)
         console.log(data)
-    
-        var readpath = await getFile(MD_URL, data.target, data.userId)
-        var image = await getFileBuffer(readpath)
-    
-        // send payload to service endpoint
-        const input = {
-            image: image,
-            prompt: "This is an alt text description. What can be seen in the front? what can be seen in the back? Is the photo coloured or black and white? indicate in the description if there's text in the picture. Do not use words image or picture in the description. Don't count the amount of things"
-        };
+        if(!service_url.startsWith('http')) service_url = 'http://' + service_url
+        console.log(service_url)
+        console.log('**************** PADDLEOCR api ***************')
+        console.log(data)
+        console.log('target:')
+        console.log(data.target)
+        console.log('source: ', data.source)
+        console.log(data.source)
         
-        const output = await replicate.run("yorickvp/llava-13b:b5f6212d032508382d61ff00469ddda3e32fd8a0e75dc39d8a4191bb742157fb", { input });
-        console.log(output.join(""));
+        
+        var readpath = await getFile(MD_URL, data.target, data.userId)
+        // Create a FormData instance
+        const form = new FormData();
+        form.append('file', fs.createReadStream(readpath));
 
-       const filedata = {label:'alt.txt', content: output.join(""), type: 'text', ext: 'txt'}
-       await sendTextFile(filedata, data, url_md)
+        // Make the POST request with got
+        const response = await got.post('http://localhost:29147/predict_image', {
+        searchParams: {
+            use_angle_cls: true,
+            reorder_texts: true,
+        },
+        body: form,
+        responseType: 'text', // Since the curl output is a file
+        });
+
+        // Save the response to a file
+        var dirname = uuidv4()
+        const writepath = path.join('data', dirname)
+        // for now, we just save plain text
+        console.log(JSON.parse(response.body))
+        const plainText = getPlainText(JSON.parse(response.body))
+        console.log(plainText)
+        fs.writeFileSync(writepath, plainText, 'utf8');
+        console.log('File saved successfully.');
+
+
+        // finally send result and original message to MessyDesk
+        const readStream_md = fs.createReadStream(writepath);
+        const formData_md = new FormData();
+        data.file = {label:'ocr.txt',  type: 'text', extension: 'txt'}
+        formData_md.append('content', readStream_md);
+        formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+
+        const postStream_md = got.stream.post(url_md, {
+            body: formData_md,
+            headers: formData_md.getHeaders(),
+        });
+        
+        await pipeline(postStream_md, new stream.PassThrough())
+        console.log('file sent!')
+        
+
+    //     // get file from MessyDesk and put it in formdata
+    //     var readpath = await getFile(MD_URL, data.target, data.userId)
+    //     const readStream = fs.createReadStream(readpath);
+    //     // read file to memory
+    //     const file = await fs.readFile(readpath);
+    //     const formData = new FormData();
+    //     formData.append('file', file);
+
+
+    //     // send payload to service endpoint and save result locally
+    //     const url_params = objectToURLParams(data.params)
+    //     var url = `${service_url}/predict_image`
+    //     console.log(url)
+    //     const postStream = got.stream.post(url, {
+    //         body: formData,
+    //         headers: formData.getHeaders(),
+    //     });
+        
+    //     var dirname = uuidv4()
+    //     const writepath = path.join('data', dirname)
+    //     const writeStream = fs.createWriteStream(writepath);
+     
+    //     writeStream
+    //     .on("error", (error) => {
+    //       console.error(`Reading failed: ${error.message}`);
+    //     });
+    
+    //   postStream
+    //     .on("error", (error) => {
+    //       console.error(`Post failed: ${error.message}`);
+    //     })
+    
+
+    //     await pipeline(postStream, writeStream)
+
+    //     // finally send result and original message to MessyDesk
+    //     const readStream_md = fs.createReadStream(writepath);
+    //     const formData_md = new FormData();
+    //     formData_md.append('content', readStream_md);
+    //     formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+
+    //     const postStream_md = got.stream.post(url_md, {
+    //         body: formData_md,
+    //         headers: formData_md.getHeaders(),
+    //     });
+        
+    //     await pipeline(postStream_md, new stream.PassThrough())
+    //     console.log('file sent!')
+
 
 
 
@@ -182,15 +259,15 @@ async function process_msg(service_url, message) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.log(error)
-        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
+        console.error('imaginary_api: Error reading, sending, or saving the image:', error.message);
         sendError(data, error, url_md)
+        
     }
 }
 
 async function sendError(data, error, url_md) {
-    await got.post(url_md + '/error', {json: {error: error, message: data}})
+    await got.post(url_md + '/error', {json:{error: error, message: data}})
 }
 
-if (nc) await nc.close()
+if(nc) await nc.close()
