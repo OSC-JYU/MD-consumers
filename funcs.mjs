@@ -6,10 +6,19 @@ import path from 'path';
 import FormData from 'form-data';
 import stream from 'node:stream';
 import { promises as fs } from 'fs';
-
-
+import { ensureDir } from 'fs-extra/esm'
 
 const KEEP_FILENAME = 1
+
+export async function createDataDir(data_dir) {
+	try {
+		//await fs.ensureDir(data_dir)
+		await ensureDir('data')
+		await ensureDir('data/source')
+	} catch(e) {
+		throw('Could not create data directory!' + e.message)
+	}
+}
 
 export async function getServiceURL(nomad_url, service, dev_url, wait) {
   if(dev_url) return dev_url
@@ -134,6 +143,7 @@ export function getPlainText(text) {
 export async function getFilesFromStore(response, service_url, message, md_url) {
 
     if(response.uri) {
+      if(!message.file) { message.file = {} }
    
       // download array of files
       if(Array.isArray(response.uri)) {
@@ -168,12 +178,16 @@ async function downloadFile(file_url, service_url, keep_filename) {
 
   // JSON can have sub types like "human.json"
   if(type == 'json') {
-    // if file_url contains do dots, then it is a sub type
+    // if file_url contains two dots, then it is a sub type
     type = extractDoubleExtension(file_url, type)
-
   }
 
   const filepath = `data/${type}_${uuid}.${ext}`
+  console.log('type: ', type)
+  console.log('ext: ', ext)
+  console.log('uuid: ', uuid)
+  console.log('filepath: ', filepath)
+  console.log('getting file: ', service_url + file_url)
 
   const readStream = got.stream(service_url + file_url)
   const writeStream = createWriteStream(filepath)
@@ -216,7 +230,8 @@ async function sendFile(filedata, message, md_url) {
 function extractDoubleExtension(fileName, type) {
   if(!fileName) return type;
   const parts = fileName.split('.');
-  if(parts.length < 2) return type;
+  
+  if(parts.length == 2) return parts[parts.length - 1];
   return parts[parts.length - 2] + '.' + parts[parts.length - 1];
 }
 

@@ -9,7 +9,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { 
     getServiceURL, 
-    createService, 
+    createService,
+    createDataDir, 
     objectToURLParams,
     printInfo, 
     getFile
@@ -47,6 +48,8 @@ process.on( 'SIGINT', async function() {
 
 
 try {
+    console.log('creating data directory...')
+    await createDataDir()
     console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
     js = nc.jetstream();  

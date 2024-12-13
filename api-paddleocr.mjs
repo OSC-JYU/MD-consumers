@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { 
     getServiceURL, 
     createService, 
+    createDataDir,
     objectToURLParams,
     printInfo, 
     getFile,
@@ -49,6 +50,8 @@ process.on( 'SIGINT', async function() {
 
 
 try {
+    console.log('creating data directory...')
+    await createDataDir()
     console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
     js = nc.jetstream();  
@@ -201,58 +204,6 @@ async function process_msg(service_url, message) {
         
         await pipeline(postStream_md, new stream.PassThrough())
         console.log('file sent!')
-        
-
-    //     // get file from MessyDesk and put it in formdata
-    //     var readpath = await getFile(MD_URL, data.target, data.userId)
-    //     const readStream = fs.createReadStream(readpath);
-    //     // read file to memory
-    //     const file = await fs.readFile(readpath);
-    //     const formData = new FormData();
-    //     formData.append('file', file);
-
-
-    //     // send payload to service endpoint and save result locally
-    //     const url_params = objectToURLParams(data.params)
-    //     var url = `${service_url}/predict_image`
-    //     console.log(url)
-    //     const postStream = got.stream.post(url, {
-    //         body: formData,
-    //         headers: formData.getHeaders(),
-    //     });
-        
-    //     var dirname = uuidv4()
-    //     const writepath = path.join('data', dirname)
-    //     const writeStream = fs.createWriteStream(writepath);
-     
-    //     writeStream
-    //     .on("error", (error) => {
-    //       console.error(`Reading failed: ${error.message}`);
-    //     });
-    
-    //   postStream
-    //     .on("error", (error) => {
-    //       console.error(`Post failed: ${error.message}`);
-    //     })
-    
-
-    //     await pipeline(postStream, writeStream)
-
-    //     // finally send result and original message to MessyDesk
-    //     const readStream_md = fs.createReadStream(writepath);
-    //     const formData_md = new FormData();
-    //     formData_md.append('content', readStream_md);
-    //     formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
-
-    //     const postStream_md = got.stream.post(url_md, {
-    //         body: formData_md,
-    //         headers: formData_md.getHeaders(),
-    //     });
-        
-    //     await pipeline(postStream_md, new stream.PassThrough())
-    //     console.log('file sent!')
-
-
 
 
     } catch (error) {

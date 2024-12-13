@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { 
     getServiceURL, 
     createService, 
-    objectToURLParams,
+    createDataDir,
     printInfo, 
     getFile,
     getFilesFromStore
@@ -48,6 +48,8 @@ process.on( 'SIGINT', async function() {
 
 
 try {
+    console.log('creating data directory...')
+    await createDataDir()
     console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
     js = nc.jetstream();  
@@ -70,9 +72,11 @@ try {
     var resp = await got.post(url).json()
     console.log(resp)
 
+    
+
 } catch(e) {
     console.log(`ERROR: Problem with NATS on ${NATS_URL}\n with consumer "${NAME}" in stream ${STREAM}`)
-    console.log( e.message)
+    console.log( e)
     process.exit(1)
 }
 
@@ -163,11 +167,12 @@ async function process_msg(service_url, message) {
         console.log(payload)
         
         // get file from MessyDesk and put it in formdata
-        var readpath = await getFile(MD_URL, data.target, data.userId)
-        const readStream = fs.createReadStream(readpath);
         const formData = new FormData();
-        formData.append('content', readStream);
-    
+        if(data.target) {
+            var readpath = await getFile(MD_URL, data.target, data.userId)
+            const readStream = fs.createReadStream(readpath);
+            formData.append('content', readStream);
+        }
 
         // provide parameters as json format
         formData.append('request', JSON.stringify(payload), {contentType: 'application/json', filename: 'request.json'});
@@ -186,35 +191,6 @@ async function process_msg(service_url, message) {
         const file_list = JSON.parse(response.body)
         console.log(file_list)
         await getFilesFromStore(file_list.response, service_url, data, url_md)
-     
-        // writeStream
-        // .on("error", (error) => {
-        //   console.error(`Reading failed: ${error.message}`);
-        // });
-    
-
-
-       // await pipeline(postStream, writeStream)
-
-       
-        // finally send result and original message to MessyDesk
-        // const readStream_md = fs.createReadStream(writepath);
-        // const formData_md = new FormData();
-        // formData_md.append('content', readStream_md);
-        // formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
-
-        // const postStream_md = got.stream.post(url_md, {
-        //     body: formData_md,
-        //     headers: formData_md.getHeaders(),
-        // });
-        
-        // await pipeline(postStream_md, new stream.PassThrough())
-        // console.log('file sent!')
-
-
-        // TODO: fix this so that code is not duplicated!
-        // if this is thumbnail message, then create also smaller thumbnail
-
 
     } catch (error) {
         console.log('pipeline error')
@@ -231,4 +207,7 @@ async function sendError(data, error, url_md) {
     await got.post(url_md + '/error', {json: {error:error, message: data}})
 }
 
-if (nc) await nc.close()
+if (nc) {
+    console.log('closing NATS connection...')
+    await nc.close()
+}
