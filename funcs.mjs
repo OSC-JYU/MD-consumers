@@ -66,46 +66,22 @@ export async function createService(md_url, service) {
 
 
 export async function getFile(md_url, file_rid, user, source) {
-  // if source is set, we fetch source file of the file_rid 
-  // pseudo query: ({File}->PROCESSED_BY->{Process}-PRODUCED->{File (where @rid = file_rid)})
-  (!source) ? source = '' : source = '/source'
-  var filename = uuidv4()
-  const writepath = path.join('data', 'source', filename)
-  console.log('getfile')
-  console.log(writepath)
-  console.log(file_rid)
-  const fileWriterStream = createWriteStream(writepath);
-
-  file_rid = file_rid.replace('#','')
-  const file_url = `${md_url}/api/files/${file_rid}${source}`
-
-  const options = {
-    headers: {
-      mail: user
-    }
-  };
-
-  const downloadStream = got.stream(file_url, options);
-
-  downloadStream
-    .on("error", (error) => {
-      console.error(`Download failed: ${error.message}`);
-    });
-
-  fileWriterStream
-    .on("error", (error) => {
-      console.error(`Could not write file to system: ${error.message}`);
-    })
-
+  const sourcePath = source ? '/source' : '';
+  const filename = uuidv4();
+  const writepath = path.join('data', 'source', filename);
+  const file_url = `${md_url}/api/files/${file_rid.replace('#', '')}${sourcePath}`;
 
   try {
-    await pipeline(downloadStream, fileWriterStream);
+    await pipeline(
+      got.stream(file_url, { headers: { mail: user } }),
+      createWriteStream(writepath)
+    );
     console.log(`File downloaded to ${writepath}`);
-    return writepath
+    return writepath;
   } catch (error) {
-    console.error(`Something went wrong. ${error.message}`);
+    console.error(`Error during file download or write: ${error.message}`);
+    throw error;
   }
-
 }
 
 
@@ -271,7 +247,7 @@ export async function sendTextFile(filedata, message, md_url) {
 
 export async function getTextFromFile(filepath, limit) {
   console.log('reading file: ', filepath)
-  const text = await fs.readFile(filepath, 'utf8');
+  var text = await fs.readFile(filepath, 'utf8');
   // limit text 
   if(limit) {
     if(text.length > limit) text = text.substring(0, limit)
@@ -294,3 +270,11 @@ export async function getFileBuffer(filepath) {
     console.log('___________________')
   }
 
+function getHeaders(user) {
+  const options = {
+    headers: {
+        mail: user
+    }
+  }
+  return options    
+}

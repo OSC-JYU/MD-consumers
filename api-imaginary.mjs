@@ -41,7 +41,9 @@ let nc, js, jsm, jc, c, consumer_app_id;
 
 // when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
-    await got.delete(`${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`)
+    // use default user as user when registering service (not user related)
+    const options = { headers: { 'mail': 'local.user@localhost' } }
+    await got.delete(`${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`, options)
     await nc.close()
 	process.exit( );
 })
@@ -69,7 +71,9 @@ try {
     // tell MessyDesk that we are now listening messages
     const url = `${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`
     console.log('registering consumer: ', url)
-    var resp = await got.post(url).json()
+    // use default user as user when registering service (not user related)
+    const options = { headers: { 'mail': 'local.user@localhost' } }
+    var resp = await got.post(url, options).json()
     console.log(resp)
 
 } catch(e) {
@@ -242,10 +246,12 @@ async function process_msg(service_url, message) {
         const formData_md = new FormData();
         formData_md.append('content', readStream_md);
         formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+        var headers = formData_md.getHeaders()
+        headers['mail'] = data.userId
 
         const postStream_md = got.stream.post(url_md, {
             body: formData_md,
-            headers: formData_md.getHeaders(),
+            headers: headers,
         });
         
         await pipeline(postStream_md, new stream.PassThrough())
@@ -254,7 +260,7 @@ async function process_msg(service_url, message) {
 
         // TODO: fix this so that code is not duplicated!
         //  if this is a thumbnail request then create smaller thumbnail also
-         if(data.id == 'thumbnailer') {
+         if(data.id == 'md-thumbnailer') {
             console.log('processing smaller thumb')
             const readStream_small = fs.createReadStream(writepath);
             const formData_small = new FormData();
@@ -281,10 +287,12 @@ async function process_msg(service_url, message) {
             const formData_thumb = new FormData();
             formData_thumb.append('content', readStream_small_thumb);
             formData_thumb.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+            var headers2 = formData_thumb.getHeaders()
+            headers2['mail'] = data.userId
 
             const postStream_small_thumb = got.stream.post(url_md, {
                 body: formData_thumb,
-                headers: formData_thumb.getHeaders(),
+                headers: headers2,
             });
             
             await pipeline(postStream_small_thumb, new stream.PassThrough())
