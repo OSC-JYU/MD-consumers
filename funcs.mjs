@@ -9,6 +9,7 @@ import { promises as fs } from 'fs';
 import { ensureDir } from 'fs-extra/esm'
 
 const KEEP_FILENAME = 1
+const DEFAULT_USER = 'local.user@localhost'
 
 export async function createDataDir(data_dir) {
 	try {
@@ -54,7 +55,8 @@ async function sleep(ms) {
 export async function createService(md_url, service) {
   const url = md_url + `/api/nomad/service/${service}/create`
   try {
-      var response = await got.post(url).json()   
+      const options = { headers: { 'mail': DEFAULT_USER } }
+      var response = await got.post(url, options).json()   
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
         throw(`Messydesk not found from ${md_url}`)
@@ -189,11 +191,11 @@ async function sendFile(filedata, message, md_url) {
   const formData = new FormData();
   formData.append('content', readStream);
   formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
-
   const response = await got.post(md_url, {
     body: formData,
     headers: {
       ...formData.getHeaders(),
+      'mail': DEFAULT_USER
     }
   });
   if(response.ok)
@@ -236,6 +238,7 @@ export async function sendTextFile(filedata, message, md_url) {
     body: formData,
     headers: {
       ...formData.getHeaders(),
+      'mail': DEFAULT_USER
     }
   });
 

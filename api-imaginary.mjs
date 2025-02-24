@@ -23,7 +23,7 @@ import {
   } from "nats";
 
 // consumer and service name
-const NAME = process.env.NAME || 'thumbnailer'
+const NAME = process.env.NAME || 'md-thumbnailer'
 const STREAM = 'PROCESS'
 
 const NOMAD_URL = process.env.NOMAD_URL || 'http://localhost:4646/v1'
@@ -37,7 +37,11 @@ const WAIT = true
 
 printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
-let nc, js, jsm, jc, c, consumer_app_id;
+let nc, js, jc, c, consumer_app_id;
+
+// Define consumers to follow
+const consumers = [NAME, NAME + "_batch"];
+
 
 // when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
@@ -55,18 +59,9 @@ try {
     console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
     js = nc.jetstream();  
-    jsm = await js.jetstreamManager();
     jc = JSONCodec()
     consumer_app_id = uuidv4()
 
-    const ci = await jsm.consumers.info("PROCESS", NAME);
-    console.log(ci)
-    console.log(jsm.consumers.list("PROCESS"))
-    var lister = await jsm.consumers.list("PROCESS")
-    for await (const item of lister) {
-        console.log(item);
-    }
-    c = await js.consumers.get("PROCESS", NAME);
 
     // tell MessyDesk that we are now listening messages
     const url = `${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`
@@ -82,46 +77,54 @@ try {
     process.exit(1)
 }
 
-
-if (c) {
-    var service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL)
-    if(service_url) {
-        console.log(NAME, ': ready for messages...')
-        console.log('service: ', service_url)
-    } else {
-        console.log(NAME, ': no service found')
-        console.log('starting service...')
-        try {
-            await createService(MD_URL, NAME)  
-        } catch(e) {
-            console.log('Error in starting service with MessyDesk API:', e)
-            console.log('Write nomad.hcl and place in services directory or run service manually and provide url with DEV_URL')
-            process.exit(1)
-        }     
-    }
-    
-    while (true) {
-        try {
-            var service_url = await getService()
-            console.log('service: ', service_url)
-            if(service_url) console.log(NAME, ': ready for messages...')
-
-        } catch(e) {
-            console.log('ERROR:' ,e)
-            process.exit(0)
-        }
-
-        const iter = await c.fetch();
-        for await (const m of iter) {
-            
-            console.log(m.info)
-            await process_msg(service_url, m)
-            // inProgress() to indicate that the processing of the message is still on-going and more time is needed (before the message is considered for being sent again)
-            // https://docs.nats.io/using-nats/developer/anatomy
-            m.ack();
-        }
-    }
+// start service if needed
+var service_url = await getServiceURL(NOMAD_URL, NAME, DEV_URL)
+if(service_url) {
+    console.log(NAME, ': ready for messages...')
+    console.log('service: ', service_url)
+} else {
+    console.log(NAME, ': no service found')
+    console.log('starting service...')
+    try {
+        await createService(MD_URL, NAME)  
+    } catch(e) {
+        console.log('Error in starting service with MessyDesk API:', e)
+        console.log('Write nomad.hcl and place in services directory or run service manually and provide url with DEV_URL')
+        process.exit(1)
+    }     
 }
+
+
+for (const consumer of consumers) {
+
+    processConsumer("PROCESS", consumer);
+}
+
+ async function processConsumer(stream, consumer) {
+    //c = await js.consumers.get("PROCESS", NAME);
+    const co = await js.consumers.get(stream, consumer);
+    if (co) {
+        //console.log(`Processing consumer: ${consumer}`);
+        while (true) {
+            try {
+                var service_url = await getService()
+                console.log('service: ', service_url)
+                if(service_url) console.log(consumer, ': ready for messages...')
+    
+            } catch(e) {
+                console.log('ERROR:' ,e)
+                process.exit(0)
+            }
+            const iter = await co.fetch();
+            for await (const m of iter) {
+                await process_msg(service_url, m)
+                m.ack();
+                //console.log(stack);
+            }
+        }
+    }
+ }
+
 
 
 async function getService() {
@@ -314,4 +317,4 @@ async function sendError(data, error, url_md) {
     await got.post(url_md + '/error', {json:{error: error, message: data}})
 }
 
-if(nc) await nc.close()
+//if(nc) await nc.close()
