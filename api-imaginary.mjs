@@ -33,6 +33,8 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const REDELIVERY_COUNT = process.env.REDELIVERY_COUNT || 5
 const DEV_URL = process.env.DEV_URL || null
 
+const DEFAULT_USER = 'local.user@localhost'
+
 const WAIT = true
 
 printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
@@ -67,7 +69,7 @@ try {
     const url = `${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`
     console.log('registering consumer: ', url)
     // use default user as user when registering service (not user related)
-    const options = { headers: { 'mail': 'local.user@localhost' } }
+    const options = { headers: { 'mail': DEFAULT_USER } }
     var resp = await got.post(url, options).json()
     console.log(resp)
 
@@ -314,7 +316,10 @@ async function process_msg(service_url, message) {
 }
 
 async function sendError(data, error, url_md) {
-    await got.post(url_md + '/error', {json:{error: error, message: data}})
+    var headers = {
+        'mail': DEFAULT_USER
+    }
+    await got.post(url_md + '/error', {json:{error: error, message: data}, headers: headers})
 }
 
 //if(nc) await nc.close()

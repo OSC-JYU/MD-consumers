@@ -170,7 +170,7 @@ async function process_msg(service_url, message) {
         form.append('file', fs.createReadStream(readpath));
 
         // Make the POST request with got
-        const response = await got.post('http://localhost:29147/predict_image', {
+        const response = await got.post('http://localhost:8080/predict_image', {
         searchParams: {
             use_angle_cls: true,
             reorder_texts: true,

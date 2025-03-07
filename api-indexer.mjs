@@ -25,8 +25,13 @@ import {
   } from "nats";
 
 // consumer and service name
-const NAME = process.env.NAME || 'thumbnailer'
+const NAME = process.env.NAME 
 const STREAM = 'PROCESS'
+
+if(!NAME) {
+    console.log('Please set NAME environment variable')
+    process.exit(1)
+}
 
 const NOMAD_URL = process.env.NOMAD_URL || 'http://localhost:4646/v1'
 const NATS_URL = process.env.NATS_URL || 'nats://localhost:4222'
@@ -216,7 +221,7 @@ async function process_msg(service_url, message) {
         console.log(error.status)
         console.log(error.code)
         console.log(error)
-        console.error('elg_api: Error in indexing:', error.message);
+        console.error('api-indexer: Error in indexing:', error.message);
 
         sendError(data, error, url_md)
     }
