@@ -118,6 +118,7 @@ export function getPlainText(text) {
   return lines.join(' ')
 }
 
+// get output files from service and send them to MessyDesk
 export async function getFilesFromStore(response, service_url, message, md_url) {
 
     if(response.uri) {
@@ -125,15 +126,22 @@ export async function getFilesFromStore(response, service_url, message, md_url) 
    
       // download array of files
       if(Array.isArray(response.uri)) {
+        const total = response.uri.length
+        var count = 1
         for(var url of response.uri) {
           // if service return array of files, then we keep those filenames
+          message.file_total = total
+          message.file_count = count
           const filedata = await downloadFile(url, service_url, KEEP_FILENAME)
           await sendFile(filedata, message, md_url)
+          count++
         }
       // download single file
       } else {
         // first, create file object to graph
         // process_rid, file_type, extension, label
+        message.file_total = 1
+        message.file_count = 1
         const filedata = await downloadFile(response.uri, service_url)
         await sendFile(filedata, message, md_url)
       }

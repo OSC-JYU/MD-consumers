@@ -247,6 +247,8 @@ async function process_msg(service_url, message) {
         await pipeline(postStream, writeStream)
 
         // finally send result and original message to MessyDesk
+        data.file_total = 1
+        data.file_count = 1
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
         formData_md.append('content', readStream_md);
