@@ -40,6 +40,8 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const REDELIVERY_COUNT = process.env.REDELIVERY_COUNT || 5
 const DEV_URL = process.env.DEV_URL || null
 
+const DEFAULT_USER = 'local.user@localhost'
+
 const WAIT = true
 
 printInfo(NAME, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
@@ -228,7 +230,7 @@ async function process_msg(service_url, message) {
 }
 
 async function sendError(data, error, url_md) {
-    await got.post(url_md + '/error', {json: {error: error, message: data}})
+    await got.post(url_md + '/error', {json: {error: error, message: data}, headers: { 'mail': DEFAULT_USER }})
 }
 
 if (nc) await nc.close()
