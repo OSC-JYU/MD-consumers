@@ -235,12 +235,12 @@ async function process_msg(service_url, message) {
      
         writeStream
         .on("error", (error) => {
-          console.error(`Reading failed: ${error.message}`);
+          console.log(`Reading failed: ${error.message}`);
         });
     
       postStream
         .on("error", (error) => {
-          console.error(`Post failed: ${error.message}`);
+          console.log(`Post failed: ${error.message}`);
         })
     
 
@@ -318,10 +318,13 @@ async function process_msg(service_url, message) {
 }
 
 async function sendError(data, error, url_md) {
-    var headers = {
-        'mail': DEFAULT_USER
+    console.log(error)
+    
+    try {
+        await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': DEFAULT_USER }})
+    } catch (e) {
+        console.log('sending error failed')
     }
-    await got.post(url_md + '/error', {json:{error: error, message: data}, headers: headers})
 }
 
 //if(nc) await nc.close()

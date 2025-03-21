@@ -321,8 +321,12 @@ async function process_msg(service_url, message) {
 }
 
 async function sendError(data, error, url_md) {
-    await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': DEFAULT_USER }})
-}
+    console.log(error)
+    try {
+        await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': DEFAULT_USER }})
+    } catch(e) {
+        console.log('sending error failed')
+    }}
 
 // if (nc) {
 //     console.log('closing NATS connection...')
