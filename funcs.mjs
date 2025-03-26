@@ -212,6 +212,15 @@ async function sendFile(filedata, message, md_url) {
     console.log('File not streamed')
 }
 
+export async function sendError(data, error, url_md, user) {
+  console.log(error)
+  
+  try {
+      await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': user }})
+  } catch (e) {
+      console.log('sending error failed')
+  }
+}
 
 function extractDoubleExtension(fileName, type) {
   if(!fileName) return type;

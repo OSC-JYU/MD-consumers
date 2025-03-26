@@ -107,27 +107,26 @@ for (const consumer of consumers) {
     processConsumer("PROCESS", consumer);
 }
 
+
 async function processConsumer(stream, consumer) {
-    //c = await js.consumers.get("PROCESS", NAME);
+
     const co = await js.consumers.get(stream, consumer);
     if (co) {
-        //console.log(`Processing consumer: ${consumer}`);
-        while (true) {
-            try {
-                var service_url = await getService()
-                console.log('service: ', service_url)
-                if(service_url) console.log(consumer, ': ready for messages...')
-    
-            } catch(e) {
-                console.log('ERROR:' ,e)
-                process.exit(0)
-            }
-            const iter = await co.fetch();
-            for await (const m of iter) {
-                await process_msg(service_url, m)
-                m.ack();
-                //console.log(stack);
-            }
+        console.log(`Processing consumer: ${consumer}`);
+
+        try {
+            var service_url = await getService()
+            console.log('service: ', service_url)
+            if(service_url) console.log(consumer, ': ready for messages...')
+
+        } catch(e) {
+            console.log('ERROR:' ,e)
+            process.exit(0)
+        }
+        const messages = await co.consume({ max_messages: 1 });
+        for await (const m of messages) {
+            await process_msg(service_url, m)
+            m.ack();
         }
     }
  }

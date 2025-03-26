@@ -3,33 +3,37 @@ Work queue consumers for MessyDesk
 
 ## What are these?
 
-Consumers are small applications that consumes messages from the main work-queue of MessyDesk. This is the layer that knows the details of how to call certain service that will eventually do all the work. 
+Consumers aka service adapters are small applications that consumes messages from the main work-queue of MessyDesk. This is the layer that knows the details of how to call certain service that will eventually do all the work. 
 
-In other words, consumers translates request from MessyDesk to API in question. There are currently four consumers for different APIs:
+In other words, consumers translates request from MessyDesk to API in question. There are currently four adapters for different APIs:
 
-    - api-elg.mjs - European Language Grid api 
-    - api-imagarinary.mjs  
-    - api-replicate.mjs
-    - api-azure-ai.mjs
+    - elg.mjs - European Language Grid api 
+    - imagarinary.mjs  
+    - poppler.mjs
+    - tesseract.mjs
 
 One must start right consumer for each service with the name of the service.
 
-	NAME=thumbnailer node api-imaginary.mjs
+	TOPIC=thumbnailer ADAPTER=imaginary node index.mjs
 
 The service "thumbnailer" is defined in /services/thumbnailer in MessyDesk's root directory.
 This will start the service IF IT HAS nomad.hcl
 
 
-Imaginary
 
 
-# imaginary
+# Imaginary
 
 MessyDesk consumer for imaginary service.
 Example:
 
-	NAME=md-imaginary node api-imaginary.mjs
+	TOPIC=md-imaginary ADAPTER=imaginary node index.mjs
 
+# Tesseract
+
+Tesseract is wrapped with ELG api by MD-tesseract
+
+    TOPIC=md-tesseract ADAPTER=elg node index.mjs
 
 # ELG
 
@@ -42,18 +46,6 @@ https://www.lingsoft.fi/en/microservices-at-your-service-bridging-gap-between-nl
 
 
 
-# Azure Ai
-
-One need to set API key in environment variable called AZURE_OPENAI_API_KEY
-
-	NAME=md-azure-ai node api-azure-ai.mjs
-
-
-# Replicate.com
-
-Work in progress!
-
-	NAME=md-replicate-image node api-replicate.mjs
 
 
 # local development
@@ -76,7 +68,7 @@ Start consumer with DEV_URL (no need for Nomad)
 
 Call publish.mjs from tests directory:
 
-    node tests/publisj.mjs
+    node tests/publish.mjs
 
 
 ## Developing with Nomad
