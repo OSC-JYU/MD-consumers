@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 
 import { 
-    getFilesFromStore,
+    getTextFromFile,
     getFile,
     sendError
 } from '../funcs.mjs';

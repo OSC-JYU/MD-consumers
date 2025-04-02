@@ -165,6 +165,7 @@ async function process_msg(service_url, message) {
 
         var readpath = await getFile(MD_URL, data.target, data.userId)
         var text = await getTextFromFile(readpath, 2000)
+        console.log('TEKSTI HAETTU')
     
         // send payload to service endpoint
         var AIresponse = ''
@@ -172,8 +173,10 @@ async function process_msg(service_url, message) {
             data.params.prompts.push({role: 'user', content: text})
             const client = new OpenAIClient(DEV_URL, new AzureKeyCredential(azureApiKey));
             const deploymentId = "gpt-4";
+            console.log('aloitan kyselyn...')
             const result = await client.getChatCompletions(deploymentId, data.params.prompts);
-          
+            console.log('azure haettu')
+          console.log(result);
             for (const choice of result.choices) {
               console.log(choice.message);
               AIresponse += choice.message.content
@@ -182,7 +185,7 @@ async function process_msg(service_url, message) {
             console.log('ERROR: Prompts not found')
         }
 
-        const filedata = {label:'result.json', content: AIresponse, type: 'data', ext: 'json'}
+        const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
         sendTextFile(filedata, data, url_md)
 
 

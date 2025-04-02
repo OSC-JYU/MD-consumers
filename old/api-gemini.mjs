@@ -1,9 +1,12 @@
 
-import path from 'path';
-import { pipeline } from 'stream/promises';
-import stream from 'node:stream';
-import fs from 'fs-extra';
-import FormData from 'form-data';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleAIFileManager } from "@google/generative-ai/server";
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const fileManager = new GoogleAIFileManager(process.env.GOOGLE_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+
 import got from 'got'
 import { v4 as uuidv4 } from 'uuid';
 
@@ -11,11 +14,10 @@ import {
     getServiceURL, 
     createService, 
     createDataDir,
-    objectToURLParams,
-    printInfo, 
+    sendTextFile,
     getFile,
-    getFilesFromStore,
-    getTextFromFile
+    getTextFromFile,
+    printInfo
 } from './funcs.mjs';
 
 import {
@@ -23,15 +25,11 @@ import {
     AckPolicy,
     JSONCodec
   } from "nats";
+import { read } from "fs-extra";
 
 // consumer and service name
-const NAME = process.env.NAME 
+const NAME = process.env.NAME || 'thumbnailer'
 const STREAM = 'PROCESS'
-
-if(!NAME) {
-    console.log('Please set NAME environment variable')
-    process.exit(1)
-}
 
 const NOMAD_URL = process.env.NOMAD_URL || 'http://localhost:4646/v1'
 const NATS_URL = process.env.NATS_URL || 'nats://localhost:4222'
@@ -39,8 +37,6 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 
 const REDELIVERY_COUNT = process.env.REDELIVERY_COUNT || 5
 const DEV_URL = process.env.DEV_URL || null
-
-const DEFAULT_USER = 'local.user@localhost'
 
 const WAIT = true
 
@@ -50,8 +46,7 @@ let nc, js, jsm, jc, c, consumer_app_id;
 
 // when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
-    const options = { headers: { 'mail': 'local.user@localhost' } }
-    await got.delete(`${MD_URL}/api/services/${TOPIC}/consumer/${consumer_app_id}`, options)
+    await got.delete(`${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`)
     await nc.close()
 	process.exit( );
 })
@@ -80,7 +75,7 @@ try {
     const url = `${MD_URL}/api/services/${NAME}/consumer/${consumer_app_id}`
     console.log('registering consumer: ', url)
     var resp = await got.post(url).json()
-    console.log('response: ', resp)
+    console.log(resp)
 
 } catch(e) {
     console.log(`ERROR: Problem with NATS on ${NATS_URL}\n with consumer "${NAME}" in stream ${STREAM}`)
@@ -165,66 +160,56 @@ async function process_msg(service_url, message) {
 
     try {
 
-        let index_data 
         console.log(typeof data)
         console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
-        console.log('**************** indexing API ***************')
-        //console.log(payload)
-        console.log(JSON.stringify(data, null, 2))
+        console.log('**************** ELG api text ***************')
+        console.log(data)
         console.log(data.target)
+        console.log(payload)
 
-        if(data.task == 'index') {
-            // get file from MessyDesk and put it in formdata
-            var readpath = await getFile(MD_URL, data.target, data.userId)
-            // read content from file
-            const content = await getTextFromFile(readpath)
-
-            index_data = [{
-                id: data.file['@rid'],
-                label: data.file.label,
-                owner: data.userId,
-                node: data.file['@type'],
-                type: data.file.type,
-                description: data.file.description,
-                fulltext: content
-            }]
-
-        } else if(data.task == 'delete') {
-            console.log('deleting')
-            index_data = {
-                delete: data.target
-            }
-        }
-        
-        if(Array.isArray(index_data) && !index_data.length) {
-            console.log('no index data')
-            return
-        } 
-
-        console.log(index_data)
-        const options= {
-            body: JSON.stringify(index_data),
-            headers: {
-            'Content-Type': 'application/json'
-            }
-        };
-
-        // // send payload to SOLR 
-        var url = `${service_url}/solr/messydesk/update?commit=true`
-        console.log(url)
-        const response = await got.post(url, options)
-        console.log(response.statusCode)
-
+        var readpath = await getFile(MD_URL, data.target, data.userId)
+        const uploadResult = await fileManager.uploadFile(
+            readpath,
+            {
+              mimeType: "image/jpeg",
+              displayName: "image",
+            },
+          );
+        console.log(uploadResult)
     
+        // send payload to service endpoint
+        var AIresponse = ''
+        if(data.params.prompts) {
+
+            const g_result = await model.generateContent([
+                "Tell me about this image.",
+                {
+                  fileData: {
+                    fileUri: uploadResult.file.uri,
+                    mimeType: uploadResult.file.mimeType,
+                  },
+                },
+              ]);
+
+            console.log(g_result.response.text());
+            AIresponse = g_result.response.text();
+        } else {
+            console.log('ERROR: Prompts not found')
+        }
+
+        const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
+        sendTextFile(filedata, data, url_md)
+
+
 
     } catch (error) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
         console.log(error)
-        console.error('api-indexer: Error in indexing:', error.message);
+        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
         sendError(data, error, url_md)
     }
@@ -236,6 +221,7 @@ async function sendError(data, error, url_md) {
         await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': DEFAULT_USER }})
     } catch(e) {
         console.log('sending error failed')
-    }}
+    }
+}
 
 if (nc) await nc.close()
