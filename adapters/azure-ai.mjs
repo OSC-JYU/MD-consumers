@@ -1,5 +1,5 @@
 
-import { OpenAIClient, AzureKeyCredential } from "@azure/openai";
+import { AzureOpenAI } from "openai";
 
 import { 
     getTextFromFile,
@@ -9,7 +9,7 @@ import {
 } from '../funcs.mjs';
 
 
-const azureApiKey = process.env["AZURE_OPENAI_API_KEY"] 
+const apiKey = process.env["AZURE_OPENAI_API_KEY"] 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 
@@ -48,26 +48,48 @@ export async function process_msg(service_url, message) {
     
         // send payload to service endpoint
         var AIresponse = ''
+        var response = null
         if(data.params.prompts && data.params.prompts.content) {
             var prompts = [{role: 'system', content: data.params.prompts.content}]
             prompts.push({role: 'user', content: text})
-            const client = new OpenAIClient(service_url, new AzureKeyCredential(azureApiKey));
-            const deploymentId = "gpt-4";
-          
-            const result = await client.getChatCompletions(deploymentId, prompts);
+            const endpoint = service_url
+            const apiVersion = "2024-12-01-preview";
+            const modelName = "gpt-4o";
+            const deployment = "gpt-4o";
+            const options = { endpoint, apiKey, deployment, apiVersion }
+
+            const client = new AzureOpenAI(options);
+            //const client = new OpenAIClient(service_url, new AzureKeyCredential(azureApiKey));
+            response = await client.chat.completions.create({
+
+                messages: prompts,
             
-            console.log(result);
-            for (const choice of result.choices) {
-              console.log(choice.message);
-              AIresponse += choice.message.content
+                max_tokens: 4096,
+                  temperature: 1,
+                  top_p: 1,
+                  model: modelName
+            
+              });
+            //const result = await client.getChatCompletions(deploymentId, prompts);
+            
+            console.log(response);
+            for (const choice of response.choices) {
+                console.log(choice.message);
+                AIresponse += choice.message.content
             }
+
         } else {
             console.log('ERROR: Prompts not found')
             throw new Error('Prompts not found')
         }
 
+        // send plain text answer
         const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
-        sendTextFile(filedata, data, url_md)
+        await sendTextFile(filedata, data, url_md)
+
+        // send json including the response (response.json files are saved but they are not visible in the graph)
+        const responsedata = {label:'response.json', content: JSON.stringify(response, null, 2), type: 'response', ext: 'json'}
+        await sendTextFile(responsedata, data, url_md)
 
 
     } catch (error) {

@@ -1,4 +1,3 @@
-
 import path from 'path';
 import got from 'got'
 import { v4 as uuidv4 } from 'uuid';
@@ -6,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { 
     getServiceURL, 
     createService,
+    stopService,
     createDataDir, 
     printInfo,
 } from './funcs.mjs';
@@ -55,11 +55,12 @@ var interval = null
 
 // when we are killed, tell MessyDesk that we are out of service
 process.on( 'SIGINT', async function() {
-    clearInterval(interval)
+    clearInterval(interval) 
     // use default user as user when deleting service (not user related)
     const options = { headers: { 'mail': DEFAULT_USER } }
     await got.delete(`${MD_URL}/api/services/${TOPIC}/consumer/${consumer_app_id}`, options)
     await nc.close()
+   
 	process.exit( );
 })
 
@@ -99,19 +100,13 @@ try {
 
 // start service if needed
 var service_url = await getServiceURL(NOMAD_URL, TOPIC, DEV_URL)
+console.log('service: ', service_url)
 if(service_url) {
     console.log(TOPIC, ': ready for messages...')
     console.log('service: ', service_url)
 } else {
     console.log(TOPIC, ': no service found')
-    console.log('starting service...')
-    try {
-        await createService(MD_URL, TOPIC)  
-    } catch(e) {
-        console.log('Error in starting service with MessyDesk API:', e)
-        console.log('Write nomad.hcl and place in services directory or run service manually and provide url with DEV_URL')
-        process.exit(1)
-    }     
+    console.log(TOPIC, ': COLD START!')   
 }
 
 
@@ -119,29 +114,44 @@ for (const consumer of consumers) {
 
     processConsumer("PROCESS", consumer);
 }
-
+var count = 0
  async function processConsumer(stream, consumer) {
-
     const co = await js.consumers.get(stream, consumer);
     if (co) {
-
         try {
-            var service_url = await getService()
-            console.log('service: ', service_url)
-            if(service_url) console.log(consumer, ': ready for messages...')
-
+            const messages = await co.consume({ max_messages: 1 });
+            count++
+            for await (const m of messages) {
+                // check if service is running
+                if(service_url == '') {
+                    service_url = await getServiceURL(NOMAD_URL, TOPIC, DEV_URL)
+                    // start if not running
+                    if(service_url == '') {
+                        await createService(MD_URL, TOPIC)
+                        service_url = await getServiceURL(NOMAD_URL, TOPIC, DEV_URL, 1)
+                        if(service_url) {
+                            console.log('service started')
+                            await process_msg(service_url, m)
+                            await m.ack();
+                        }
+                    }
+                } else {
+                    await process_msg(service_url, m)
+                    await m.ack();
+                }
+                // stop service if queue is empty
+                const info = await co.info();
+                if(info.num_ack_pending == 0) {
+                    await stopService(MD_URL, TOPIC)
+                    service_url = ''
+                }
+            }
         } catch(e) {
             console.log('ERROR:' ,e)
             process.exit(0)
         }
-        const messages = await co.consume({ max_messages: 1 });
-        for await (const m of messages) {
-            await process_msg(service_url, m)
-            m.ack();
-        }
-        
     }
- }
+}
 
 
 

@@ -9,12 +9,16 @@
   "author": "artturimatias",
   "license": "ISC",
   "dependencies": {
-    "@azure/openai": "^1.0.0-beta.12",
+    "@azure/identity": "^4.8.0",
+    "@azure/openai": "^2.0.0",
     "@google/generative-ai": "^0.21.0",
     "form-data": "^4.0.0",
     "fs-extra": "^11.2.0",
     "got": "^14.2.1",
+    "image-size": "^2.0.2",
     "nats": "^2.21.0",
+    "openai": "^4.92.1",
+    "probe-image-size": "^7.2.3",
     "replicate": "github:replicate/replicate-javascript#fix-rangeerror",
     "uuid": "^9.0.1"
   }

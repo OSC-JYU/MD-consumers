@@ -32,6 +32,7 @@ export async function process_msg(service_url, message) {
         await sendError({}, {error: 'invalid message payload!'}, url_md)
     }
 
+    let g_result
     try {
         
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
@@ -58,7 +59,7 @@ export async function process_msg(service_url, message) {
         var AIresponse = ''
         if(data.params.prompts) {
 
-            const g_result = await model.generateContent([
+            g_result = await model.generateContent([
                 data.params.prompts.content,
                 {
                   fileData: {
@@ -68,16 +69,21 @@ export async function process_msg(service_url, message) {
                 },
               ]);
 
-         
+            console.log(g_result)
             AIresponse = g_result.response.text();
             //const deleteResponse = await fileManager.deleteFile(uploadResult.file.uri);
             //console.log(deleteResponse)
         } else {
             console.log('ERROR: Prompts not found')
+            //const deleteResponse = await fileManager.deleteFile(uploadResult.file.uri);
+            throw new Error('Prompts not found')
         }
 
         const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
-        sendTextFile(filedata, data, url_md)
+        await sendTextFile(filedata, data, url_md)
+
+        const responsedata = {label:'response.json', content: JSON.stringify(g_result.response, null, 2), type: 'response', ext: 'json'}
+        await sendTextFile(responsedata, data, url_md)
 
 
     } catch (error) {

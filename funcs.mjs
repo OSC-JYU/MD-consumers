@@ -25,6 +25,8 @@ export async function getServiceURL(nomad_url, service, dev_url, wait) {
   if(dev_url) return dev_url
 	// NOTE: this gives only the first address
 	const url = nomad_url + `/service/${service}`
+  console.log('getting service url:', url)
+
 	var service_url = ''
     try {
         var response = await got.get(url).json()
@@ -53,10 +55,11 @@ async function sleep(ms) {
 }
 
 export async function createService(md_url, service) {
-  const url = md_url + `/api/nomad/service/${service}/create`
+  const url = md_url + `/api/nomad/service/${service}`
   try {
       const options = { headers: { 'mail': DEFAULT_USER } }
-      var response = await got.post(url, options).json()   
+      var response = await got.post(url, options).json()  
+      return response
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
         throw(`Messydesk not found from ${md_url}`)
@@ -65,6 +68,20 @@ export async function createService(md_url, service) {
   }
 }
 
+
+export async function stopService(md_url, service) {
+  const url = md_url + `/api/nomad/service/${service}`
+  try {
+      const options = { headers: { 'mail': DEFAULT_USER } }
+      var response = await got.delete(url, options).json()  
+      return response
+  } catch(e) {
+      if(e.code == 'ECONNREFUSED')
+        throw(`Messydesk not found from ${md_url}`)
+      else
+        throw('Error in stopping service with MessyDesk API query:' , e.response.body)
+  }
+}
 
 
 export async function getFile(md_url, file_rid, user, source) {
@@ -214,10 +231,12 @@ async function sendFile(filedata, message, md_url) {
 
 export async function sendError(data, error, url_md, user) {
   console.log(error)
+  if(!user) user = DEFAULT_USER
   
   try {
       await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': user }})
   } catch (e) {
+    console.log(e)
       console.log('sending error failed')
   }
 }
