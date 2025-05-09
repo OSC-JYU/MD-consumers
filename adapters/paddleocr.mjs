@@ -40,8 +40,6 @@ export async function process_msg(service_url, message) {
         console.log(data)
         console.log('target:')
         console.log(data.target)
-        console.log('source: ', data.source)
-        console.log(data.source)
         
         
         var readpath = await getFile(MD_URL, data.target, data.userId)

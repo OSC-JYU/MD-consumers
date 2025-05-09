@@ -56,6 +56,7 @@ async function sleep(ms) {
 
 export async function createService(md_url, service) {
   const url = md_url + `/api/nomad/service/${service}`
+  console.log('creating service:', url)
   try {
       const options = { headers: { 'mail': DEFAULT_USER } }
       var response = await got.post(url, options).json()  
@@ -85,7 +86,7 @@ export async function stopService(md_url, service) {
 
 
 export async function getFile(md_url, file_rid, user, source) {
-  const sourcePath = source ? '/source' : '';
+  const sourcePath = source ? source : '';
   const filename = uuidv4();
   const writepath = path.join('data', 'source', filename);
   const file_url = `${md_url}/api/files/${file_rid.replace('#', '')}${sourcePath}`;
@@ -136,7 +137,11 @@ export function getPlainText(text) {
 }
 
 // get output files from service and send them to MessyDesk
-export async function getFilesFromStore(response, service_url, message, md_url) {
+export async function getFilesFromStore(response, service_url, message, md_url, file_labels) {
+
+  if(Array.isArray(file_labels) && file_labels.length > 0) {
+    message.file.label = file_labels[0]
+  }
 
     if(response.uri) {
       if(!message.file) { message.file = {} }
@@ -144,19 +149,24 @@ export async function getFilesFromStore(response, service_url, message, md_url) 
       // download array of files
       if(Array.isArray(response.uri)) {
         const total = response.uri.length
-        var count = 1
+        var count = 0
+        
         for(var url of response.uri) {
-          // if service return array of files, then we keep those filenames
+          // if service return array of files, then we keep those filenames unless file_labels is set
           message.file_total = total
-          message.file_count = count
-          const filedata = await downloadFile(url, service_url, KEEP_FILENAME)
+          message.file_count = count + 1
+          let filedata;
+          if(file_labels && file_labels.length > count) {
+            message.file.label = file_labels[count];
+            filedata = await downloadFile(url, service_url);
+          } else {
+            filedata = await downloadFile(url, service_url, KEEP_FILENAME);
+          }
           await sendFile(filedata, message, md_url)
           count++
         }
       // download single file
       } else {
-        // first, create file object to graph
-        // process_rid, file_type, extension, label
         message.file_total = 1
         message.file_count = 1
         const filedata = await downloadFile(response.uri, service_url)
@@ -294,9 +304,12 @@ export async function getTextFromFile(filepath, limit) {
   return text
 }
 
-export async function getFileBuffer(filepath) {
-
-  return await fs.readFile(filepath)
+export async function getFileBuffer(filepath, asBase64 = false) {
+  const buffer = await fs.readFile(filepath);
+  if (asBase64) {
+    return buffer.toString('base64');
+  }
+  return buffer;
 }
 
   export function printInfo(name, nomad_url, nats_url, md_url) {

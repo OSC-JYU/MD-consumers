@@ -5,6 +5,7 @@ import {
     getTextFromFile,
     getFile,
     sendTextFile,
+    getFileBuffer,
     sendError
 } from '../funcs.mjs';
 
@@ -42,24 +43,33 @@ export async function process_msg(service_url, message) {
         console.log(data.target)
         console.log(payload)
 
+        var text = ''
+        var image = ''
+
         var readpath = await getFile(MD_URL, data.target, data.userId)
-        var text = await getTextFromFile(readpath, 2000)
+        if(data.file.type == 'text') {
+            text = await getTextFromFile(readpath, 2000)
+        } else if(data.file.type == 'image') {
+            image = await getFileBuffer(readpath, true)
+        }
         console.log('TEKSTI HAETTU')
-    
+        console.log(image)
+
+        const endpoint = service_url
+        const apiVersion = "2024-12-01-preview";
+        const modelName = "gpt-4o";
+        const deployment = "gpt-4o";
+        const options = { endpoint, apiKey, deployment, apiVersion }
+
         // send payload to service endpoint
         var AIresponse = ''
         var response = null
         if(data.params.prompts && data.params.prompts.content) {
             var prompts = [{role: 'system', content: data.params.prompts.content}]
-            prompts.push({role: 'user', content: text})
-            const endpoint = service_url
-            const apiVersion = "2024-12-01-preview";
-            const modelName = "gpt-4o";
-            const deployment = "gpt-4o";
-            const options = { endpoint, apiKey, deployment, apiVersion }
+            if(text) prompts.push({role: 'user', content: text})
+            if(image) prompts.push({role: 'user', content: [{type: "image_url", image_url: {url: `data:image/png;base64,${image}`}}]})
 
             const client = new AzureOpenAI(options);
-            //const client = new OpenAIClient(service_url, new AzureKeyCredential(azureApiKey));
             response = await client.chat.completions.create({
 
                 messages: prompts,
@@ -70,7 +80,6 @@ export async function process_msg(service_url, message) {
                   model: modelName
             
               });
-            //const result = await client.getChatCompletions(deploymentId, prompts);
             
             console.log(response);
             for (const choice of response.choices) {
