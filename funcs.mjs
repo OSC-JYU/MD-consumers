@@ -246,7 +246,6 @@ export async function sendError(data, error, url_md, user) {
   try {
       await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': user }})
   } catch (e) {
-    console.log(e)
       console.log('sending error failed')
   }
 }

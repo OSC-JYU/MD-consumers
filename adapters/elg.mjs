@@ -63,7 +63,6 @@ export async function process_msg(service_url, message) {
             headers: formData.getHeaders(),
         });
         
-
         //console.log(response)
         const file_list = JSON.parse(response.body)
         console.log(file_list)

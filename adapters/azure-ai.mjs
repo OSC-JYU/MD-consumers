@@ -1,5 +1,6 @@
 
 import { AzureOpenAI } from "openai";
+import path from 'path'
 
 import { 
     getTextFromFile,
@@ -52,8 +53,7 @@ export async function process_msg(service_url, message) {
         } else if(data.file.type == 'image') {
             image = await getFileBuffer(readpath, true)
         }
-        console.log('TEKSTI HAETTU')
-        console.log(image)
+
 
         const endpoint = service_url
         const apiVersion = "2024-12-01-preview";
@@ -93,7 +93,11 @@ export async function process_msg(service_url, message) {
         }
 
         // send plain text answer
-        const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
+        let label = 'result.txt'
+        if(data.file.original_filename) {
+            label = path.parse(data.file.original_filename).name + '.txt'
+        }
+        const filedata = {label:label, content: AIresponse, type: 'text', ext: 'txt'}
         await sendTextFile(filedata, data, url_md)
 
         // send json including the response (response.json files are saved but they are not visible in the graph)

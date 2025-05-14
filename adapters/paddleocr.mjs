@@ -89,6 +89,12 @@ export async function process_msg(service_url, message) {
         fs.writeFileSync(writepath, JSON.stringify(processedResults), 'utf8');
         console.log('File saved successfully.');
 
+        if(data.processed_files) {
+            data.processed_files += 1
+        } else {
+            data.processed_files = 1
+        }
+
         // finally send result and original message to MessyDesk
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
