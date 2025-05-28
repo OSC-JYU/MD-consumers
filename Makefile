@@ -1,8 +1,8 @@
 IMAGES := $(shell docker images -f "dangling=true" -q)
 CONTAINERS := $(shell docker ps -a -q -f status=exited)
 VOLUME := md-consumer-thumbnailer
-VERSION := 25.05.21
-REPOSITORY := osc.repo.kopla.jyu.fi
+VERSION := 25.05.28
+REPOSITORY := localhost
 IMAGE := md-consumer
 
 
