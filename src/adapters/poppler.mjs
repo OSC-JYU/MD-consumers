@@ -37,43 +37,56 @@ export async function process_msg(service_url, message) {
 
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
-        console.log('**************** PDF-splitter api ***************')
+        console.log('**************** POPPLER api ***************')
         console.log(data)
 
-        
+        // we try to get file from MessyDesk and put it in formdata
+        // First we try to get file from pages (firstPageToConvert = pages/page-1.pdf)
+        const page = data.params.page
+        delete data.params.page  // we must remove this or poppler complain
+
+        // get file from MessyDesk and put it in formdata
         const formData = new FormData();
+        if(data.target) {
+            var readpath = await getFile(MD_URL, data.target, data.userId, '/pages/' + page)
+            const readStream = fs.createReadStream(readpath);
+            formData.append('content', readStream);
+        }
+
+        // data.params.firstPageToConvert = "1"
+        // data.params.lastPageToConvert = "1"
+
         formData.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
 
         // send payload to service endpoint 
         var url = `${service_url}/process`
-        console.log(url)
-        const metadata = await got.post(url, {
+        const file_list = await got.post(url, {
             body: formData,
             headers: formData.getHeaders(),
         }).json();
-        
-        console.log(metadata)
-        data.file.metadata = {...data.file.metadata, ...metadata}
+        console.log('file_list', file_list)
+        let file_labels = []
 
-        // Notify MD that we are done
-        const done_md = `${MD_URL}/api/nomad/process/files/done`
-        const done_md_response = await got.post(done_md, {
-            body: JSON.stringify(data),
-            headers: {
-                'Content-Type': 'application/json'
-            },
-        }).json();
-        
-        console.log(done_md_response)
+        // 'pdfimages' can return multiple files per page, so need set the page part and then add running number
+        if(data.params.task == 'pdfimages') {
+            for(let i = 0; i < file_list.response.uri.length; i++) {
+                file_labels.push('page_' + page + '_image_' + (i + 1))
+            }
+        } else {
+            file_labels.push('page_' + page) 
+        }
+
+        await getFilesFromStore(file_list.response, service_url, data, url_md, file_labels)
+
 
 
     } catch (error) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.log(error)
+        //console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
     }
 }

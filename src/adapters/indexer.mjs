@@ -95,7 +95,7 @@ export async function process_msg(service_url, message) {
         console.log(error)
         console.error('api-indexer: Error in indexing:', error.message);
 
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
     }
 
 }

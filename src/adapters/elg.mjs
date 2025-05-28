@@ -7,9 +7,8 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 
 import { 
-    objectToURLParams,
-    getFile,
     getFilesFromStore,
+    getFile,
     sendError
 } from '../funcs.mjs';
 
@@ -35,49 +34,39 @@ export async function process_msg(service_url, message) {
 
     try {
 
+        console.log(typeof data)
+        console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
-        console.log('**************** POPPLER api ***************')
+        console.log('**************** ELG api ***************')
         console.log(data)
-
-        // we try to get file from MessyDesk and put it in formdata
-        // First we try to get file from pages (firstPageToConvert = pages/page-1.pdf)
-        const page = data.params.page
-        delete data.params.page  // we must remove this or poppler complain
-
+        console.log(data.target)
+        console.log(payload)
+        
         // get file from MessyDesk and put it in formdata
         const formData = new FormData();
         if(data.target) {
-            var readpath = await getFile(MD_URL, data.target, data.userId, '/pages/' + page)
+            var readpath = await getFile(MD_URL, data.target, data.userId)
             const readStream = fs.createReadStream(readpath);
             formData.append('content', readStream);
         }
 
-        // data.params.firstPageToConvert = "1"
-        // data.params.lastPageToConvert = "1"
+        // provide parameters as json format
+        formData.append('request', JSON.stringify(payload), {contentType: 'application/json', filename: 'request.json'});
 
-        formData.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
 
         // send payload to service endpoint 
         var url = `${service_url}/process`
-        const file_list = await got.post(url, {
+        console.log(url)
+        const response = await got.post(url, {
             body: formData,
             headers: formData.getHeaders(),
-        }).json();
-        console.log('file_list', file_list)
-        let file_labels = []
-
-        // 'pdfimages' can return multiple files per page, so need set the page part and then add running number
-        if(data.params.task == 'pdfimages') {
-            for(let i = 0; i < file_list.response.uri.length; i++) {
-                file_labels.push('page_' + page + '_image_' + (i + 1))
-            }
-        } else {
-            file_labels.push('page_' + page) 
-        }
-
-        await getFilesFromStore(file_list.response, service_url, data, url_md, file_labels)
-
+        });
+        
+        //console.log(response)
+        const file_list = JSON.parse(response.body)
+        console.log(file_list)
+        await getFilesFromStore(file_list.response, service_url, data, url_md)
 
 
     } catch (error) {
@@ -87,6 +76,7 @@ export async function process_msg(service_url, message) {
         console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
     }
+
 }

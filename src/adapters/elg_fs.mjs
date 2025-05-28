@@ -7,8 +7,9 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 
 import { 
-    getFilesFromStore,
+    objectToURLParams,
     getFile,
+    getFilesFromStore,
     sendError
 } from '../funcs.mjs';
 
@@ -34,49 +35,45 @@ export async function process_msg(service_url, message) {
 
     try {
 
-        console.log(typeof data)
-        console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
-        console.log('**************** ELG api ***************')
+        console.log('**************** ELG_fs api ***************')
         console.log(data)
-        console.log(data.target)
-        console.log(payload)
+
         
-        // get file from MessyDesk and put it in formdata
         const formData = new FormData();
-        if(data.target) {
-            var readpath = await getFile(MD_URL, data.target, data.userId)
-            const readStream = fs.createReadStream(readpath);
-            formData.append('content', readStream);
-        }
-
-        // provide parameters as json format
-        formData.append('request', JSON.stringify(payload), {contentType: 'application/json', filename: 'request.json'});
-
+        formData.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
 
         // send payload to service endpoint 
         var url = `${service_url}/process`
         console.log(url)
-        const response = await got.post(url, {
+        const metadata = await got.post(url, {
             body: formData,
             headers: formData.getHeaders(),
-        });
+        }).json();
         
-        //console.log(response)
-        const file_list = JSON.parse(response.body)
-        console.log(file_list)
-        await getFilesFromStore(file_list.response, service_url, data, url_md)
+        console.log(metadata)
+        data.file.metadata = {...data.file.metadata, ...metadata}
+
+        // Notify MD that we are done
+        const done_md = `${MD_URL}/api/nomad/process/files/done`
+        const done_md_response = await got.post(done_md, {
+            body: JSON.stringify(data),
+            headers: {
+                'Content-Type': 'application/json'
+            },
+        }).json();
+        
+        console.log(done_md_response)
 
 
     } catch (error) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.log(error)
+        
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
     }
-
 }

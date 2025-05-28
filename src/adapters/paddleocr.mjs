@@ -55,7 +55,7 @@ export async function process_msg(service_url, message) {
         // Make the POST request with got
         const response = await got.post(service_url + '/predict_image', {
         searchParams: {
-            use_angle_cls: true,
+            use_angle_cls: false,
             reorder_texts: true,
         },
         body: form,
@@ -117,7 +117,7 @@ export async function process_msg(service_url, message) {
         console.log(error.code)
 
         console.error('paddleocr: Error reading, sending, or saving the image:', error.message);
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
         
     }
 }

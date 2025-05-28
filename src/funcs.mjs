@@ -6,23 +6,28 @@ import path from 'path';
 import FormData from 'form-data';
 import stream from 'node:stream';
 import { promises as fs } from 'fs';
-import { ensureDir } from 'fs-extra/esm'
+import { ensureDir } from 'fs-extra'
 
 const KEEP_FILENAME = 1
 const DEFAULT_USER = 'local.user@localhost'
+const DATA_DIR = './data'
 
-export async function createDataDir(data_dir) {
+export async function createDataDir() {
 	try {
 		//await fs.ensureDir(data_dir)
-		await ensureDir('data')
-		await ensureDir('data/source')
+		await ensureDir(DATA_DIR)
+		await ensureDir(path.join(DATA_DIR, 'source'))
 	} catch(e) {
-		throw('Could not create data directory!' + e.message)
+    console.log('ERROR:', e)
+		throw({message: 'Could not create data directory!' + e.message})
 	}
 }
 
-export async function getServiceURL(nomad_url, service, dev_url, wait) {
-  if(dev_url) return dev_url
+export async function getServiceURL(nomad_url, service, dev_url, local_url, nomad, wait) {
+  if(!nomad) {
+    if(dev_url) return dev_url
+    if(local_url) return local_url
+  }
 	// NOTE: this gives only the first address
 	const url = nomad_url + `/service/${service}`
   console.log('getting service url:', url)
@@ -88,7 +93,7 @@ export async function stopService(md_url, service) {
 export async function getFile(md_url, file_rid, user, source) {
   const sourcePath = source ? source : '';
   const filename = uuidv4();
-  const writepath = path.join('data', 'source', filename);
+  const writepath = path.join(DATA_DIR, 'source', filename);
   const file_url = `${md_url}/api/files/${file_rid.replace('#', '')}${sourcePath}`;
 
   try {
@@ -240,11 +245,11 @@ async function sendFile(filedata, message, md_url) {
 }
 
 export async function sendError(data, error, url_md, user) {
-  console.log(error)
+
   if(!user) user = DEFAULT_USER
   
   try {
-      await got.post(url_md + '/error', {json: {error:error, message: data}, headers: { 'mail': user }})
+      await got.post(url_md + '/api/nomad/process/files/error', {json: {error:error, message: data}, headers: { 'mail': user }})
   } catch (e) {
       console.log('sending error failed')
   }

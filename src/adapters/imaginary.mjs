@@ -44,8 +44,7 @@ export async function process_msg(service_url, message) {
         console.log(data)
         console.log('target:')
         console.log(data.target)
-        console.log('source: ', data.source)
-        console.log(data.source)
+ 
         
         var sourceFile = false
 
@@ -191,7 +190,7 @@ export async function process_msg(service_url, message) {
         console.log(error.code)
 
         console.error('imaginary_api: Error reading, sending, or saving the image:', error.message);
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
         
     }
 

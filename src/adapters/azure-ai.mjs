@@ -95,7 +95,9 @@ export async function process_msg(service_url, message) {
         // send plain text answer
         let label = 'result.txt'
         if(data.file.original_filename) {
-            label = path.parse(data.file.original_filename).name + '.txt'
+            label = data.file.original_filename + '.txt'
+        } else if(data.file.label) {
+             label = data.file.label + '.txt'
         }
         const filedata = {label:label, content: AIresponse, type: 'text', ext: 'txt'}
         await sendTextFile(filedata, data, url_md)
@@ -109,10 +111,10 @@ export async function process_msg(service_url, message) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.log(error)
+        //console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
     }
 
 }

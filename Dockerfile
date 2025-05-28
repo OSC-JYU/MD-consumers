@@ -4,10 +4,11 @@ FROM node:23.3-bookworm-slim
 # RUN apt update && apk add bash
 COPY package.json /src/package.json
 
-COPY . /src
+COPY --chown=node:node . /src
+RUN mkdir -p /src/data && chown -R node:node /src/data
 WORKDIR /src
 RUN npm install
-RUN chown -R node:node /src
+
 
 # change user
 USER node

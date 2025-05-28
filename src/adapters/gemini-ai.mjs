@@ -90,10 +90,10 @@ export async function process_msg(service_url, message) {
         console.log('pipeline error')
         console.log(error.status)
         console.log(error.code)
-        console.log(error)
+        //console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, url_md)
+        sendError(data, error, MD_URL)
     }
 
 }
