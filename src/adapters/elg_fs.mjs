@@ -60,7 +60,8 @@ export async function process_msg(service_url, message) {
         const done_md_response = await got.post(done_md, {
             body: JSON.stringify(data),
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'mail': DEFAULT_USER
             },
         }).json();
         
