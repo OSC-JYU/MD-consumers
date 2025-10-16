@@ -21,7 +21,7 @@ This now listens message stream called "md-imaginary" and sends processing reque
 NOTE: You must manually start the actual service. In this case like this:
 
     docker pull nextcloud/aio-imaginary
-    docker run --name md-imaginary -p 9000:9000 nextcloud/aio-imaginary 
+    docker run -d --name md-imaginary -p 9000:9000 nextcloud/aio-imaginary 
 
 
 If you want to run this with nomad, then add NOMAD environment variable. This will start the service with nomad (IF service HAS nomad.hcl). Obviously you must have also nomad installed.

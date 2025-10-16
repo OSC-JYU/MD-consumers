@@ -7,8 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 
 import { 
-    getFilesFromStore,
-    getFile,
+    sendTextFile,
     sendError
 } from '../funcs.mjs';
 
@@ -37,38 +36,34 @@ export async function process_msg(service_url, message) {
 
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
-        console.log('**************** ELG api ***************')
+        console.log('**************** TEST api ***************')
         console.log(msg)
 
         if(!msg.file?.['@rid']) {
             throw new Error('No file found in message')
         }
+
+        console.log('msg.task.params: ', msg.task.params)
         
-        // get file from MessyDesk and put it in formdata
-        const formData = new FormData();
-        var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId)
-        const readStream = fs.createReadStream(readpath);
-        formData.append('content', readStream);
-
-        // provide message data as json file
-        formData.append('message', Buffer.from(payload), {contentType: 'application/json', filename: 'message.json'});
-
-
-        // send payload to service endpoint 
-        var url = `${service_url}/process`
-        const response = await got.post(url, {
-            body: formData,
-            headers: formData.getHeaders(),
-        });
-        
-        //console.log(response)
-        const file_list = JSON.parse(response.body)
- 
         const end = process.hrtime(start);
         const seconds = (end[0] + end[1] / 1e9).toFixed(3);
         msg.response = {time: parseFloat(seconds)}
-        
-        await getFilesFromStore(file_list.response, service_url, msg, url_md)
+
+
+        if(msg.task.id === "test") {
+            if(msg.task.params.delay) {
+                await new Promise(resolve => setTimeout(resolve, msg.task.params.delay * 1000))
+                var txt = "Hello World " + Math.random()
+                const filedata = {label:'result.txt', content: txt, type: 'text', ext: 'txt'}
+                await sendTextFile(filedata, msg, url_md)
+            }
+            
+        } else if(msg.task.id === "json") {
+            var json = {number: Math.random(), title: "Test data for file " + msg.file.label}
+            const filedata = {label:msg.file.label + '.json', content: JSON.stringify(json), type: 'json', ext: 'json'}
+            await sendTextFile(filedata, msg, url_md)
+
+        }
 
 
     } catch (error) {

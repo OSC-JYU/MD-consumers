@@ -99,7 +99,7 @@ try {
         try {
             await got.post(url, options).json();
         } catch (e) {
-            console.log('ERROR:', e);
+            console.log('ERROR:', e.message);
         }
     }, 30000);
 
@@ -151,8 +151,15 @@ for (const consumer of consumers) {
         }
         const messages = await co.consume({ max_messages: 1 });
         for await (const m of messages) {
-            await process_msg(service_url, m)
-            m.ack();
+            try {
+                await process_msg(service_url, m)
+                // acknowledge message
+                m.ack();
+            } catch(e) {
+                console.log('ERROR:', e.message)
+                // we do not retry, so we ack
+                m.ack();
+            }
         }
         
     }

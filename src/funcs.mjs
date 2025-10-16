@@ -264,7 +264,7 @@ function extractDoubleExtension(fileName, type) {
 }
 
 
-export async function sendTextFile(filedata, message, md_url) {
+export async function sendJSONFile(filedata, message, md_url) {
 
   message.file.type = filedata.type
   message.file.extension = filedata.ext
@@ -272,14 +272,62 @@ export async function sendTextFile(filedata, message, md_url) {
   if(filedata.label)
     message.file.label = filedata.label
 
-  const textBuffer = Buffer.from(filedata.content, 'utf-8');
+  const jsonData = JSON.stringify(filedata.content, null, 2)
   const formData = new FormData();
 
   // Append the text file to the form data
-  formData.append('content', textBuffer, {
+  formData.append('content', jsonData, {
+    filename: filedata.label,
+    contentType: 'application/json', // Set the content type to application/json
+  });
+
+  formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
+
+
+  const response = await got.post(md_url, {
+    body: formData,
+    headers: {
+      ...formData.getHeaders(),
+      'mail': DEFAULT_USER
+    }
+  });
+
+  if(response.ok)
+    console.log('File send successfully')
+  else 
+    console.log('File not streamed')
+}
+
+export async function sendStringTextFile(filedata, message, md_url) {
+  await sendTextFile(filedata, message, md_url, true)
+}
+
+export async function sendTextFile(filedata, message, md_url, STRING_CONTENT = false) {
+
+  message.file.type = filedata.type
+  message.file.extension = filedata.ext
+  
+  if(filedata.label)
+    message.file.label = filedata.label
+
+  const formData = new FormData();
+
+  if(STRING_CONTENT) {
+    // Use the string directly - no need for Buffer conversion
+    const textContent = filedata.content;
+      // Append the text file to the form data
+  formData.append('content', textContent, {
     filename: filedata.label,
     contentType: 'text/plain', // Set the content type to text/plain
   });
+  } else {
+    const buffer = Buffer.from(filedata.content, 'utf-8');
+    formData.append('content', buffer, {
+      filename: filedata.label,
+      contentType: 'text/plain', // Set the content type to text/plain
+    });
+  }
+
 
   formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
 
@@ -325,6 +373,11 @@ export async function getFileBuffer(filepath, asBase64 = false) {
     console.log('messydesk:', md_url)
     console.log('___________________')
   }
+
+
+export async function sendDone(message, md_url) {
+  await got.post(md_url + '/done', {json: message, headers: { 'mail': DEFAULT_USER }})
+}
 
 function getHeaders(user) {
   const options = {

@@ -1,7 +1,10 @@
 
-import { GoogleGenAI, createPartFromUri } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleAIFileManager } from "@google/generative-ai/server";
 
-const ai = new GoogleGenAI({vertexai: false, apiKey: process.env.GOOGLE_API_KEY});
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const fileManager = new GoogleAIFileManager(process.env.GOOGLE_API_KEY);
+
 
 import { 
   getFile,
@@ -20,7 +23,6 @@ export async function process_msg(service_url, message) {
 
     let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`
-    const start = process.hrtime();
 
     // make sure that we have valid payload
     try {
@@ -52,47 +54,16 @@ export async function process_msg(service_url, message) {
         if (msg.file.type !== 'text' && msg.file.extension !== 'txt') {
             // Determine MIME type and display name for non-text files
             let mimeType, displayName
+            mimeType = "image/jpeg"
+            displayName = "image"
             
-            // Determine MIME type based on file extension
-            const extension = msg.file.extension?.toLowerCase() || ''
-            switch (extension) {
-                case 'jpg':
-                case 'jpeg':
-                    mimeType = "image/jpeg"
-                    break
-                case 'png':
-                    mimeType = "image/png"
-                    break
-                case 'gif':
-                    mimeType = "image/gif"
-                    break
-                case 'webp':
-                    mimeType = "image/webp"
-                    break
-                case 'pdf':
-                    mimeType = "application/pdf"
-                    break
-                default:
-                    mimeType = "image/jpeg" // fallback
-            }
-            
-            displayName = `file_${msg.file['@rid'] || 'unknown'}`
-            
-            console.log(`Uploading file to Gemini: ${readpath}, MIME: ${mimeType}, Display: ${displayName}`)
-            
-            try {
-                uploadResult = await ai.files.upload({
-                    file: readpath,
-                    config: {
-                      mimeType: mimeType,
-                      displayName: displayName,
-                    }
-                });
-                console.log('File upload successful:', uploadResult);
-            } catch (uploadError) {
-                console.error('File upload failed:', uploadError);
-                throw new Error(`Failed to upload file: ${uploadError.message}`);
-            }
+            uploadResult = await fileManager.uploadFile(
+                readpath,
+                {
+                  mimeType: mimeType,
+                  displayName: displayName,
+                },
+              );
         }
 
     
@@ -105,32 +76,28 @@ export async function process_msg(service_url, message) {
             // Handle different file types
             if (msg.file.type === 'text' || msg.file.extension === 'txt') {
                 // For text files, read the content directly and add as text
-                const textContent = await getTextFromFile(readpath, 4000)  // HARD LIMIT!
+                const textContent = await getTextFromFile(readpath, 2000)
                 if (textContent) {
                     contentArray.push(textContent)
                 }
             } else if (uploadResult) {
                 // For image files, use the uploaded file URI
-                if (uploadResult.uri && uploadResult.mimeType) {
-                    const fileContent = createPartFromUri(uploadResult.uri, uploadResult.mimeType);
-                    contentArray.push(fileContent);
-                  } else {
-                    throw new Error('File URI or MIME type not found');
-                  }
+                contentArray.push({
+                    fileData: {
+                        fileUri: uploadResult.file.uri,
+                        mimeType: uploadResult.file.mimeType,
+                    },
+                })
             }
 
-            g_result = await ai.models.generateContent({
-                model: msg.task.model.id,
-                contents: contentArray
-            }).catch((e) => {
-                console.error('error name: ', e.name);
-                console.error('error message: ', e.message);
-                console.error('error status: ', e.status);
-                throw new Error('Error generating content: ' + e.message);
-            });
+            const model = genAI.getGenerativeModel({ model: msg.task.model.id });
+            console.log(contentArray)
+            return
+
+            g_result = await model.generateContent(contentArray);
 
             console.log(g_result)
-            AIresponse = g_result.text;
+            AIresponse = g_result.response.text();
             //const deleteResponse = await fileManager.deleteFile(uploadResult.file.uri);
             //console.log(deleteResponse)
         } else {
@@ -139,19 +106,11 @@ export async function process_msg(service_url, message) {
             throw new Error('Prompts not found')
         }
 
-        const end = process.hrtime(start);
-        const seconds = (end[0] + end[1] / 1e9).toFixed(3);
-        console.log(`Execution time: ${seconds} seconds`);
-        msg.response = {
-            time: parseFloat(seconds)
-        }
-
         const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
         await sendTextFile(filedata, msg, url_md)
 
-        const metadata = process_metadata(g_result)
-        metadata.time = seconds
-        const output = {metadata: metadata, raw: g_result.text}
+        const metadata = process_metadata(g_result.response)
+        const output = {metadata: metadata, raw: g_result.response}
 
         const responsedata = {label:'response.json', content: output, type: 'response', ext: 'json'}
         await sendJSONFile(responsedata, msg, url_md + '/metadata')
@@ -164,7 +123,7 @@ export async function process_msg(service_url, message) {
         //console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(msg, error.message, MD_URL)
+        sendError(msg, error, MD_URL)
     }
 
 }

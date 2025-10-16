@@ -18,13 +18,13 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 
 export async function process_msg(service_url, message) {
 
-    let payload, data
+    let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
     try {
         payload = message.json()
-        data = JSON.parse(payload)
+        msg = JSON.parse(payload)
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -32,17 +32,16 @@ export async function process_msg(service_url, message) {
 
     try {
 
-        console.log(typeof data)
-        console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** PADDLEOCR api ***************')
-        console.log(data)
-        console.log('target:')
-        console.log(data.target)
+        console.log(msg)
         
+        if(!msg.file?.['@rid']) {
+            throw new Error('No file found in message')
+        }
         
-        var readpath = await getFile(MD_URL, data.target, data.userId)
+        var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId)
         
         // Get image dimensions efficiently from file header
         const dimensions = await probe(fs.createReadStream(readpath));
@@ -89,18 +88,18 @@ export async function process_msg(service_url, message) {
         fs.writeFileSync(writepath, JSON.stringify(processedResults), 'utf8');
         console.log('File saved successfully.');
 
-        if(data.processed_files) {
-            data.processed_files += 1
+        if(msg.processed_files) {
+            msg.processed_files += 1
         } else {
-            data.processed_files = 1
+            msg.processed_files = 1
         }
 
         // finally send result and original message to MessyDesk
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
-        data.file = {label:'ocr.json',  type: 'ocr.json', extension: 'json'}
+        msg.file = {label:'ocr.json',  type: 'ocr.json', extension: 'json'}
         formData_md.append('content', readStream_md);
-        formData_md.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+        formData_md.append('request', JSON.stringify(msg), {contentType: 'application/json', filename: 'request.json'});
 
         const postStream_md = got.stream.post(url_md, {
             body: formData_md,
@@ -117,7 +116,7 @@ export async function process_msg(service_url, message) {
         console.log(error.code)
 
         console.error('paddleocr: Error reading, sending, or saving the image:', error.message);
-        sendError(data, error, MD_URL)
+        sendError(msg, error, MD_URL)
         
     }
 }
