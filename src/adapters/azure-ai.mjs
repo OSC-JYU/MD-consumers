@@ -101,7 +101,6 @@ const TestSchema = createSchema({
 
 
 export async function process_msg(service_url, message) {
-    console.log('Processing message in process_a:', message.data);
 
     let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`

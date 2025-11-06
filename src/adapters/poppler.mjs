@@ -19,15 +19,14 @@ const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message) {
-    console.log('Processing message in process_a:', message.data);
 
-    let payload, data
+    let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
     try {
         payload = message.json()
-        data = JSON.parse(payload)
+        msg = JSON.parse(payload)
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -38,17 +37,17 @@ export async function process_msg(service_url, message) {
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** POPPLER api ***************')
-        console.log(data)
+        console.log(msg)
 
         // we try to get file from MessyDesk and put it in formdata
         // First we try to get file from pages (firstPageToConvert = pages/page-1.pdf)
-        const page = data.params.page
-        delete data.params.page  // we must remove this or poppler complain
+        const page = msg.task.params.page
+        delete msg.task.params.page  // we must remove this or poppler complains
 
         // get file from MessyDesk and put it in formdata
         const formData = new FormData();
-        if(data.target) {
-            var readpath = await getFile(MD_URL, data.target, data.userId, '/pages/' + page)
+        if(msg.file) {
+            var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId, '/pages/' + page)
             const readStream = fs.createReadStream(readpath);
             formData.append('content', readStream);
         }
@@ -56,7 +55,7 @@ export async function process_msg(service_url, message) {
         // data.params.firstPageToConvert = "1"
         // data.params.lastPageToConvert = "1"
 
-        formData.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+        formData.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
 
         // send payload to service endpoint 
         var url = `${service_url}/process`
@@ -68,7 +67,7 @@ export async function process_msg(service_url, message) {
         let file_labels = []
 
         // 'pdfimages' can return multiple files per page, so need set the page part and then add running number
-        if(data.params.task == 'pdfimages') {
+        if(msg.task.id == 'pdfimages') {
             for(let i = 0; i < file_list.response.uri.length; i++) {
                 file_labels.push('page_' + page + '_image_' + (i + 1))
             }
@@ -76,7 +75,7 @@ export async function process_msg(service_url, message) {
             file_labels.push('page_' + page) 
         }
 
-        await getFilesFromStore(file_list.response, service_url, data, url_md, file_labels)
+        await getFilesFromStore(file_list.response, service_url, msg, url_md, file_labels)
 
 
 
@@ -87,6 +86,6 @@ export async function process_msg(service_url, message) {
         //console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, MD_URL)
+        sendError(msg, error, MD_URL)
     }
 }

@@ -39,21 +39,25 @@ export async function process_msg(service_url, message_raw) {
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** DSPACE7 api ***************')
-        console.log(message)
+        //console.log(message)
 
         var dirname = uuidv4()
         const writepath = path.join('data', dirname)
         //const plainText = getPlainText(processedResults)
         //console.log(plainText)
         
-        if(message.task == 'init') {
+        const dspace_url = message.task.params.url
+
+
+        // ************** init task **************    
+        if(message.task.id == 'init') {
             console.log('init task')
             var init_data = {hierarchy: [], fields: []}
             var hierarchy = []
             var fields = []
             // save init.json to source node's path (init.json files are saved but they are not visible in the graph)
             // get metafields from DSpace: https://demo.dspace.org/server/api/core/metadatafields
-            const metafields = await got.get('https://demo.dspace.org/server/api/core/metadatafields?size=500', {
+            const metafields = await got.get(dspace_url + '/core/metadatafields?size=500', {
                 headers: {
                     'Accept': 'application/json'
                 }
@@ -83,7 +87,7 @@ export async function process_msg(service_url, message_raw) {
 
 
             // get communities from DSpace: https://demo.dspace.org/server/api/core/communities
-            const communities = await got.get('https://demo.dspace.org/server/api/core/communities?size=500', {
+            const communities = await got.get(dspace_url + '/core/communities?size=500', {
                 headers: {
                     'Accept': 'application/json'
                 }
@@ -96,7 +100,7 @@ export async function process_msg(service_url, message_raw) {
                     id: community.id,
                     collections: []
                 }
-                const collections = await got.get(`https://demo.dspace.org/server/api/core/communities/${community.id}/collections?size=500`, {
+                const collections = await got.get(`${dspace_url}/core/communities/${community.id}/collections?size=500`, {
                     headers: {
                         'Accept': 'application/json'
                     }
@@ -119,14 +123,30 @@ export async function process_msg(service_url, message_raw) {
             init_data.hierarchy = hierarchy
 
             // save metafields to init.json
-
+            const metadata_url = `${MD_URL}/api/nomad/process/files/metadata`
             const responsedata = {label:'init.json', content: JSON.stringify(init_data, null, 2), type: 'response', ext: 'json'}
-            await sendTextFile(responsedata, message, url_md)
+            await sendTextFile(responsedata, message, metadata_url)
+     
+            console.log('init.json sent!')
 
 
-        } else if(message.task == 'make_query') {
+        // ************** make_query task **************        
+        } else if(message.task.id == 'make_query') {
+            // build query url
+            var query_url = `${dspace_url}/discover/search/objects?query=${message.task.params.query}`
+            if(message.task.params.scope) {
+                query_url += `&scope=${message.task.params.scope}`
+            }
+            if(message.task.params.sort) {
+                query_url += `&sort=${message.task.params.sort}`
+            }
+            if(message.task.params.page) {
+                query_url += `&page=${message.task.params.page}`
+            }
+            if(message.task.params.size) {
+                query_url += `&size=${message.task.params.size}`
+            }
       
-            const query_url = `https://demo.dspace.org/server/api/discover/search/objects?sort=dc.date.accessioned,DESC&page=0&size=10&query=${message.params.query}`
             console.log(query_url)
             const response = await got.get(query_url, {
                 headers: {
@@ -134,30 +154,33 @@ export async function process_msg(service_url, message_raw) {
                 }
             }).json()
             try {
-                for(const item of response._embedded.searchResult._embedded.objects) {
-                    const responsedata = {label:item._embedded.indexableObject.name + '.json', content: JSON.stringify(item, null, 2), type: 'dspace7.json', ext: 'dspace7.json'}
-                    await sendTextFile(responsedata, message, url_md)
+                for(const item of response._embedded?.searchResult?._embedded?.objects || []) {
+                    //console.log(JSON.stringify(item, null, 2))
+                    var label = item._embedded.indexableObject.name
+                        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
+                        .replace(/["']/g, '') // Remove quotes
+                    const responsedata = {label:label + '.json', content: JSON.stringify(item._embedded.indexableObject, null, 2), type: 'dspace7.json', ext: 'dspace7.json'}
+                    await sendTextFile(responsedata, message, url_md, true)
                 }
             } catch (error) {
-                console.log(query_url)
                 console.log('error sending dspace7 data')
-                console.log(error)
-                sendError(message, error, MD_URL)
+                console.log(error.message)
             }
-            // notify MessyDesk that we are done
-            await sendDone(message, url_md)
 
 
-        } else if(message.task == 'get_abstracts') {
+        // ************** get_abstracts task **************    
+        } else if(message.task.id == 'get_abstracts') {
 
             var file = await getFile(MD_URL, message.file['@rid'], DEFAULT_USER, '')
             // read DSpace item as json
             const file_content = await fs.readFile(file, 'utf8')
             var item = JSON.parse(file_content)
+           
 
             var abstract = ''
             try {
-                var abstracts = item._embedded.indexableObject.metadata['dc.description.abstract']
+                var abstracts = item.metadata?.['dc.description.abstract']
+                console.log(abstracts)
                 if(Array.isArray(abstracts)) {
                     abstract = abstracts[0].value
                 }
@@ -168,16 +191,21 @@ export async function process_msg(service_url, message_raw) {
             if(abstract) {
 
                 //var language = message.params.language
-                if(message.params.language_source == 'detect language') {
+                if(message.task.params.language_source == 'detect language') {
                     var detected_language = await cld.detect(abstract)
                     console.log(detected_language)
                 } else {
-                    var language = message.params.language
+                    var language = message.task.params.language
                     console.log(language)
                 }
- 
 
-                var responsedata = {label:item._embedded.indexableObject.name + '.txt', content: abstract, type: 'text', ext: 'txt'}
+                if(item.metadata?.['dc.title']) {
+                    var title = item.metadata?.['dc.title'][0].value
+                    console.log(title)
+                    abstract = title + '\n\n' + abstract
+                }
+
+                var responsedata = {label:item.name + '.txt', content: abstract, type: 'text', ext: 'txt'}
                 await sendStringTextFile(responsedata, message, url_md)
             }
         }

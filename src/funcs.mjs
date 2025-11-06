@@ -23,13 +23,14 @@ export async function createDataDir() {
 	}
 }
 
-export async function getServiceURL(nomad_url, service, dev_url, local_url, nomad, wait) {
-  if(!nomad) {
-    if(dev_url) return dev_url
-    if(local_url) return local_url
+export async function getServiceURL(nomad_url, request, service, nomad, wait) {
+  console.log('request:', request)
+  if(!request.nomad) {
+    if(service.dev_url) return service.dev_url
+    if(service.local_url) return service.local_url
   }
 	// NOTE: this gives only the first address
-	const url = nomad_url + `/service/${service}`
+	const url = nomad_url + `/service/${request.topic}`
   console.log('getting service url:', url)
 
 	var service_url = ''
@@ -230,7 +231,7 @@ async function sendFile(filedata, message, md_url) {
   const readStream = createReadStream(filedata.path);
   const formData = new FormData();
   formData.append('content', readStream);
-  formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
+  formData.append('message', JSON.stringify(message),{contentType: 'application/json', filename: 'message.json'});
   const response = await got.post(md_url, {
     body: formData,
     headers: {
@@ -281,7 +282,7 @@ export async function sendJSONFile(filedata, message, md_url) {
     contentType: 'application/json', // Set the content type to application/json
   });
 
-  formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
+  formData.append('message', JSON.stringify(message),{contentType: 'application/json', filename: 'message.json'});
 
 
   const response = await got.post(md_url, {
@@ -316,10 +317,10 @@ export async function sendTextFile(filedata, message, md_url, STRING_CONTENT = f
     // Use the string directly - no need for Buffer conversion
     const textContent = filedata.content;
       // Append the text file to the form data
-  formData.append('content', textContent, {
-    filename: filedata.label,
-    contentType: 'text/plain', // Set the content type to text/plain
-  });
+    formData.append('content', textContent, {
+      filename: filedata.label,
+      contentType: 'text/plain', // Set the content type to text/plain
+    });
   } else {
     const buffer = Buffer.from(filedata.content, 'utf-8');
     formData.append('content', buffer, {
@@ -329,7 +330,7 @@ export async function sendTextFile(filedata, message, md_url, STRING_CONTENT = f
   }
 
 
-  formData.append('request', JSON.stringify(message),{contentType: 'application/json', filename: 'request.json'});
+  formData.append('message', JSON.stringify(message),{contentType: 'application/json', filename: 'message.json'});
 
 
   const response = await got.post(md_url, {

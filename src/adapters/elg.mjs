@@ -18,7 +18,6 @@ const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message) {
-    console.log('Processing message in process_a:', message.data);
 
     let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`
@@ -50,6 +49,12 @@ export async function process_msg(service_url, message) {
         const readStream = fs.createReadStream(readpath);
         formData.append('content', readStream);
 
+        if(msg.file.source) {
+            var readpath_source = await getFile(MD_URL, msg.file.source['@rid'], msg.userId)
+            const readStream_source = fs.createReadStream(readpath_source);
+            formData.append('source', readStream_source);
+        }
+
         // provide message data as json file
         formData.append('message', Buffer.from(payload), {contentType: 'application/json', filename: 'message.json'});
 
@@ -66,8 +71,12 @@ export async function process_msg(service_url, message) {
  
         const end = process.hrtime(start);
         const seconds = (end[0] + end[1] / 1e9).toFixed(3);
-        msg.response = {time: parseFloat(seconds)}
-        
+
+        // make sure we dot not overwrite existing response data
+        msg.response = { ...(msg.response || {}), time: parseFloat(seconds) }
+        if(file_list.message) {
+            msg = { ...msg, ...file_list.message }
+        }
         await getFilesFromStore(file_list.response, service_url, msg, url_md)
 
 

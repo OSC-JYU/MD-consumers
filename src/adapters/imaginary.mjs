@@ -18,7 +18,6 @@ const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message) {
-    console.log('Processing message in process_a:', message.data);
 
     let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`
@@ -59,8 +58,9 @@ export async function process_msg(service_url, message) {
                 
                 msg.task.id = 'rotate'
                 // change file to source file
-                msg.file = msg.source
+                msg.file = msg.file.source
                 if(!json.rotate) throw({error: 'no rotate in OSD', status: 'created_duplicate_source'}) 
+                // read rotate from osd.json
                 msg.task.params.rotate = json.rotate
                 
             } catch(e) {
@@ -69,7 +69,7 @@ export async function process_msg(service_url, message) {
                     const readStream_md = fs.createReadStream(readpath);
                     const formData_md = new FormData();
                     formData_md.append('content', readStream_md);
-                    formData_md.append('request', JSON.stringify(msg), {contentType: 'application/json', filename: 'request.json'});
+                    formData_md.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
             
                     const postStream_md = got.stream.post(url_md, {
                         body: formData_md,
@@ -135,7 +135,7 @@ export async function process_msg(service_url, message) {
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
         formData_md.append('content', readStream_md);
-        formData_md.append('request', JSON.stringify(msg), {contentType: 'application/json', filename: 'request.json'});
+        formData_md.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
         var headers = formData_md.getHeaders()
         headers['mail'] = msg.userId
 
@@ -176,7 +176,7 @@ export async function process_msg(service_url, message) {
             const readStream_small_thumb = fs.createReadStream(writepath_small);
             const formData_thumb = new FormData();
             formData_thumb.append('content', readStream_small_thumb);
-            formData_thumb.append('request', JSON.stringify(msg), {contentType: 'application/json', filename: 'request.json'});
+            formData_thumb.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
             var headers2 = formData_thumb.getHeaders()
             headers2['mail'] = msg.userId
 
@@ -186,7 +186,7 @@ export async function process_msg(service_url, message) {
             });
             
             await pipeline(postStream_small_thumb, new stream.PassThrough())
-            console.log('smaller file sent!')
+            //console.log('smaller file sent!')
          }
 
 

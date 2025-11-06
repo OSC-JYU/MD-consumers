@@ -99,7 +99,7 @@ export async function process_msg(service_url, message) {
         const formData_md = new FormData();
         msg.file = {label:'ocr.json',  type: 'ocr.json', extension: 'json'}
         formData_md.append('content', readStream_md);
-        formData_md.append('request', JSON.stringify(msg), {contentType: 'application/json', filename: 'request.json'});
+        formData_md.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
 
         const postStream_md = got.stream.post(url_md, {
             body: formData_md,

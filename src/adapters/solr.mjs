@@ -8,6 +8,7 @@ import path from 'path';
 
 import { 
     getTextFromFile,
+    sendJSONFile,
     getFile,
     sendError
 } from '../funcs.mjs';
@@ -18,15 +19,14 @@ const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message) {
-    console.log('Processing message in process_a:', message.data);
     
-    let payload, data
+    let payload, msg
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
     try {
         payload = message.json()
-        data = JSON.parse(payload)
+        msg = JSON.parse(payload)
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -35,36 +35,40 @@ export async function process_msg(service_url, message) {
     try {
 
         let index_data 
-        console.log(typeof data)
-        console.log(data)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** indexing API ***************')
-        //console.log(payload)
-        console.log(JSON.stringify(data, null, 2))
-        console.log(data.target)
 
-        if(data.task == 'index') {
+
+
+        if(msg.task.id == 'index') {
             // get file from MessyDesk and put it in formdata
-            var readpath = await getFile(MD_URL, data.target, data.userId)
+            var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId)
             // read content from file
             const content = await getTextFromFile(readpath)
 
             index_data = [{
-                id: data.file['@rid'],
-                label: data.file.label,
-                owner: data.userId,
-                node: data.file['@type'],
-                type: data.file.type,
-                description: data.file.description,
+                id: msg.file['@rid'],
+                label: msg.file.label,
+                owner: msg.userId,
+                node: msg.file['@type'],
+                type: msg.file.type,
+                description: msg.file.description,
                 fulltext: content
             }]
 
-        } else if(data.task == 'delete') {
-            console.log('deleting')
-            index_data = {
-                delete: data.target
+            if(msg.set_process) {
+                index_data[0].set_process = msg.set_process
             }
+
+        } else if(msg.task.id == 'delete') {
+            index_data = {
+                delete: msg.file['@rid']
+            }
+        } else {
+
+            console.log('invalid task')
+            return {error: 'invalid task'}
         }
         
         if(Array.isArray(index_data) && !index_data.length) {
@@ -81,12 +85,19 @@ export async function process_msg(service_url, message) {
         };
 
         // // send payload to SOLR 
+        //var url = `${service_url}/solr/messydesk/update?commit=true`
         var url = `${service_url}/solr/messydesk/update?commit=true`
+   
+       // const SOLR_CORE = process.env.SOLR_CORE || 'messydesk'
         console.log(url)
         const response = await got.post(url, options)
+        console.log(response.body)
         console.log(response.statusCode)
 
-    
+        // if current_file is same as total_files, send the response to the next step
+        if(msg.current_file == msg.total_files) {
+            await sendJSONFile({label: 'index.json', content: {count: msg.current_file}, type: 'solr.json', ext: 'json'}, msg, url_md)
+        }
 
     } catch (error) {
         console.log('pipeline error')
@@ -95,7 +106,7 @@ export async function process_msg(service_url, message) {
         console.log(error)
         console.error('api-indexer: Error in indexing:', error.message);
 
-        sendError(data, error, MD_URL)
+        sendError(msg, error, MD_URL)
     }
 
 }
