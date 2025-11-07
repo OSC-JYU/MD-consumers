@@ -28,6 +28,8 @@ export async function getServiceURL(nomad_url, request, service, nomad, wait) {
   if(!request.nomad) {
     if(service.dev_url) return service.dev_url
     if(service.local_url) return service.local_url
+    return 'http://dummy.service.com'
+    //if(service.source_url) return service.source_url
   }
 	// NOTE: this gives only the first address
 	const url = nomad_url + `/service/${request.topic}`
