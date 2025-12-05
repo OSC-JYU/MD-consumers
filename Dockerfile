@@ -1,4 +1,4 @@
-FROM node:23.3-bookworm-slim
+FROM node:24.9.0-bookworm-slim
 
 # Install app dependencies
 # RUN apt update && apk add bash

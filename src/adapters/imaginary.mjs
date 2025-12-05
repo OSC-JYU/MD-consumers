@@ -59,9 +59,13 @@ export async function process_msg(service_url, message) {
                 msg.task.id = 'rotate'
                 // change file to source file
                 msg.file = msg.file.source
-                if(!json.rotate) throw({error: 'no rotate in OSD', status: 'created_duplicate_source'}) 
+                //if(!json.rotate) throw({error: 'no rotate in OSD', status: 'created_duplicate_source'}) 
                 // read rotate from osd.json
-                msg.task.params.rotate = json.rotate
+                if(json.orientation_confidence > 15) {
+                    msg.task.params.rotate = json.orientation
+                } else {
+                    msg.task.params.rotate = 0
+                }
                 
             } catch(e) {
                 if(e.status == 'created_duplicate_source') {

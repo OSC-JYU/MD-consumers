@@ -66,7 +66,7 @@ export async function process_msg(service_url, message) {
             headers: formData.getHeaders(),
         });
         
-        //console.log(response)
+        console.log(response.body)
         const file_list = JSON.parse(response.body)
  
         const end = process.hrtime(start);
