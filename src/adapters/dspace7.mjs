@@ -23,12 +23,12 @@ const DEFAULT_USER = 'local.user@localhost'
 
 export async function process_msg(service_url, message_raw) {
 
-    let message
+    let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
     try {
-        message = JSON.parse(message_raw.json())
+        msg = message_raw.json()
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -39,18 +39,18 @@ export async function process_msg(service_url, message_raw) {
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** DSPACE7 api ***************')
-        //console.log(message)
+        //console.log(msg)
 
         var dirname = uuidv4()
         const writepath = path.join('data', dirname)
         //const plainText = getPlainText(processedResults)
         //console.log(plainText)
         
-        const dspace_url = message.task.params.url
+        const dspace_url = msg.task.params.url
 
 
         // ************** init task **************    
-        if(message.task.id == 'init') {
+        if(msg.task.id == 'init') {
             console.log('init task')
             var init_data = {hierarchy: [], fields: []}
             var hierarchy = []
@@ -125,26 +125,26 @@ export async function process_msg(service_url, message_raw) {
             // save metafields to init.json
             const metadata_url = `${MD_URL}/api/nomad/process/files/metadata`
             const responsedata = {label:'init.json', content: JSON.stringify(init_data, null, 2), type: 'response', ext: 'json'}
-            await sendTextFile(responsedata, message, metadata_url)
+            await sendTextFile(responsedata, msg, metadata_url)
      
             console.log('init.json sent!')
 
 
         // ************** make_query task **************        
-        } else if(message.task.id == 'make_query') {
+        } else if(msg.task.id == 'make_query') {
             // build query url
-            var query_url = `${dspace_url}/discover/search/objects?query=${message.task.params.query}`
-            if(message.task.params.scope) {
-                query_url += `&scope=${message.task.params.scope}`
+            var query_url = `${dspace_url}/discover/search/objects?query=${msg.task.params.query}`
+            if(msg.task.params.scope) {
+                query_url += `&scope=${msg.task.params.scope}`
             }
-            if(message.task.params.sort) {
-                query_url += `&sort=${message.task.params.sort}`
+            if(msg.task.params.sort) {
+                query_url += `&sort=${msg.task.params.sort}`
             }
-            if(message.task.params.page) {
-                query_url += `&page=${message.task.params.page}`
+            if(msg.task.params.page) {
+                query_url += `&page=${msg.task.params.page}`
             }
-            if(message.task.params.size) {
-                query_url += `&size=${message.task.params.size}`
+            if(msg.task.params.size) {
+                query_url += `&size=${msg.task.params.size}`
             }
       
             console.log(query_url)
@@ -160,7 +160,7 @@ export async function process_msg(service_url, message_raw) {
                         .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
                         .replace(/["']/g, '') // Remove quotes
                     const responsedata = {label:label + '.json', content: JSON.stringify(item._embedded.indexableObject, null, 2), type: 'dspace7.json', ext: 'dspace7.json'}
-                    await sendTextFile(responsedata, message, url_md, true)
+                    await sendTextFile(responsedata, msg, url_md, true)
                 }
             } catch (error) {
                 console.log('error sending dspace7 data')
@@ -169,9 +169,9 @@ export async function process_msg(service_url, message_raw) {
 
 
         // ************** get_abstracts task **************    
-        } else if(message.task.id == 'get_abstracts') {
+        } else if(msg.task.id == 'get_abstracts') {
 
-            var file = await getFile(MD_URL, message.file['@rid'], DEFAULT_USER, '')
+            var file = await getFile(MD_URL, msg.file['@rid'], DEFAULT_USER, '')
             // read DSpace item as json
             const file_content = await fs.readFile(file, 'utf8')
             var item = JSON.parse(file_content)
@@ -190,12 +190,12 @@ export async function process_msg(service_url, message_raw) {
         
             if(abstract) {
 
-                //var language = message.params.language
-                if(message.task.params.language_source == 'detect language') {
+                //var language = msg.params.language
+                if(msg.task.params.language_source == 'detect language') {
                     var detected_language = await cld.detect(abstract)
                     console.log(detected_language)
                 } else {
-                    var language = message.task.params.language
+                    var language = msg.task.params.language
                     console.log(language)
                 }
 
@@ -206,7 +206,7 @@ export async function process_msg(service_url, message_raw) {
                 }
 
                 var responsedata = {label:item.name + '.txt', content: abstract, type: 'text', ext: 'txt'}
-                await sendStringTextFile(responsedata, message, url_md)
+                await sendStringTextFile(responsedata, msg, url_md)
             }
         }
         console.log('Dspace7 data sent!')
@@ -220,6 +220,6 @@ export async function process_msg(service_url, message_raw) {
         console.log(error)
         console.error('elg_api: Error reading, sending, or saving:', error.message);
 
-        sendError(message, error, MD_URL)
+        sendError(msg, error, MD_URL)
     }
 }

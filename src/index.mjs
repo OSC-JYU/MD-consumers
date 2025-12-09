@@ -10,11 +10,8 @@ import {
     printInfo,
 } from './funcs.mjs';
 
-import {
-    connect,
-    AckPolicy,
-    JSONCodec
-  } from "nats";
+import { connect } from "@nats-io/transport-node";
+import { jetstream, AckPolicy } from "@nats-io/jetstream";
 
 import { fileURLToPath } from 'url';
 
@@ -43,7 +40,7 @@ let LOCAL_URL = null
 
 printInfo(TOPIC, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
-let nc, js, jc, c, consumer_app_id;
+let nc, js, c, consumer_app_id;
 
 // Define consumers to follow
 const consumers = [TOPIC, TOPIC + "_batch"];
@@ -70,8 +67,7 @@ try {
     await createDataDir()
     console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
-    js = nc.jetstream();  
-    jc = JSONCodec()
+    js = jetstream(nc);
     consumer_app_id = uuidv4()
 
 
@@ -156,6 +152,7 @@ for (const consumer of consumers) {
         }
         const messages = await co.consume({ max_messages: 1 });
         for await (const m of messages) {
+            console.log('message: ', m)
             try {
                 await process_msg(service_url, m)
                 // acknowledge message
@@ -174,10 +171,14 @@ for (const consumer of consumers) {
 
 async function getService(request_json, service_json) {
     var service_url = ''
-    while(service_url == '') {
-        console.log('waiting for service...')
-        service_url = await getServiceURL(NOMAD_URL, request_json, service_json)
-        await sleep(2000)
+    if(DEV_URL) {
+        service_url = DEV_URL
+    } else {
+        while(service_url == '') {
+            console.log('waiting for service...')
+            service_url = await getServiceURL(NOMAD_URL, request_json, service_json)
+            await sleep(2000)
+        }
     }
     return service_url
 }

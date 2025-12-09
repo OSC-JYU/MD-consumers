@@ -107,8 +107,7 @@ export async function process_msg(service_url, message) {
 
     // make sure that we have valid payload
     try {
-        payload = message.json()
-        msg = JSON.parse(payload)
+        msg = message.json()
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -118,7 +117,6 @@ export async function process_msg(service_url, message) {
 
 
         console.log(typeof msg)
-        console.log(msg)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** Azure AI api text ***************')
@@ -143,6 +141,7 @@ export async function process_msg(service_url, message) {
         const apiVersion = msg.task.model.version;
         const deployment = msg.task.model.id;
         const options = { endpoint, apiKey, deployment, apiVersion }
+        console.log(options)
 
         // send payload to service endpoint
         var AIresponse = ''

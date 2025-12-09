@@ -19,14 +19,13 @@ const DEFAULT_USER = 'local.user@localhost'
 export async function process_msg(service_url, message) {
     console.log('Processing message in process_a:', message.data);
 
-    let payload, msg
+    let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
     const start = process.hrtime();
 
     // make sure that we have valid payload
     try {
-        payload = message.json()
-        msg = JSON.parse(payload)
+        msg = message.json()
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)

@@ -20,13 +20,12 @@ const DEFAULT_USER = 'local.user@localhost'
 
 export async function process_msg(service_url, message) {
 
-    let payload, data
+    let msg, data
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
     try {
-        payload = message.json()
-        data = JSON.parse(payload)
+        msg = message.json()
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -37,7 +36,7 @@ export async function process_msg(service_url, message) {
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** ELG_fs api ***************')
-        console.log(data)
+        console.log(msg)
 
         
         const formData = new FormData();
@@ -52,7 +51,7 @@ export async function process_msg(service_url, message) {
         }).json();
         
         console.log(metadata)
-        data.file.metadata = {...data.file.metadata, ...metadata}
+        msg.file.metadata = {...msg.file.metadata, ...metadata}
 
         // Notify MD that we are done
         const done_md = `${MD_URL}/api/nomad/process/files/done`
@@ -74,6 +73,6 @@ export async function process_msg(service_url, message) {
         
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(data, error, MD_URL)
+        sendError(msg, error, MD_URL)
     }
 }

@@ -19,13 +19,12 @@ const DEFAULT_USER = 'local.user@localhost'
 
 export async function process_msg(service_url, message) {
     
-    let payload, data
+    let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
     try {
-        payload = message.json()
-        data = JSON.parse(payload)
+        msg = message.json()
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -34,18 +33,18 @@ export async function process_msg(service_url, message) {
     try {
 
         let index_data 
-        console.log(typeof data)
-        console.log(data)
+        console.log(typeof msg)
+        console.log(msg)
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
         console.log(service_url)
         console.log('**************** json-tagger API ***************')
         //console.log(payload)
-        console.log(JSON.stringify(data, null, 2))
-        console.log(data.target)
+        console.log(JSON.stringify(msg, null, 2))
+        console.log(msg.target)
 
-        if(data.task == 'tag') {
+        if(msg.task == 'tag') {
             // get file from MessyDesk and put it in formdata
-            var readpath = await getFile(MD_URL, data.target, data.userId)
+            var readpath = await getFile(MD_URL, msg.target, msg.userId)
             // read content from file
             const content = await getTextFromFile(readpath)
             const json_content = JSON.parse(content)
@@ -54,7 +53,7 @@ export async function process_msg(service_url, message) {
             for(var item of json_content) {
                 console.log(item.word)
                 var entity = {
-                    type: data.id + '-' + item.entity_group,
+                    type: msg.id + '-' + item.entity_group,
                     label: item.word,
                     color: '#ff8844',
                     icon: 'mdi-account'
@@ -67,12 +66,12 @@ export async function process_msg(service_url, message) {
                 body: JSON.stringify(entities),
                 headers: {
                 'Content-Type': 'application/json',
-                'mail': data.userId
+                'mail': msg.userId
                 }
             };
     
             // // // send payload to SOLR 
-            var url = `${MD_URL}/api/entities/link/${data.target.replace('#', '')}`
+            var url = `${MD_URL}/api/entities/link/${msg.target.replace('#', '')}`
             console.log(url)
             const response = await got.post(url, options)
             console.log(response.statusCode)
@@ -88,7 +87,7 @@ export async function process_msg(service_url, message) {
         console.log(error)
         console.error('api-indexer: Error in tagging:', error.message);
 
-        //sendError(data, error, url_md)
+        //sendError(msg, error, url_md)
     }
 
 }
