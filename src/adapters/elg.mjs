@@ -19,14 +19,13 @@ const DEFAULT_USER = 'local.user@localhost'
 
 export async function process_msg(service_url, message) {
 
-    let payload, msg
+    let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
     const start = process.hrtime();
 
     // make sure that we have valid payload
     try {
-        payload = message.json()
-        msg = JSON.parse(payload)
+        msg = message.json()
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
@@ -50,16 +49,18 @@ export async function process_msg(service_url, message) {
         formData.append('content', readStream);
 
         if(msg.file.source) {
+            console.log('source file found', msg.file.source['@rid'])
             var readpath_source = await getFile(MD_URL, msg.file.source['@rid'], msg.userId)
+            console.log('readpath_source', readpath_source)
             const readStream_source = fs.createReadStream(readpath_source);
             formData.append('source', readStream_source);
         }
 
         // provide message data as json file
-        formData.append('message', Buffer.from(payload), {contentType: 'application/json', filename: 'message.json'});
+        formData.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
 
 
-        // send payload to service endpoint 
+        // send msg to service endpoint 
         var url = `${service_url}/process`
         const response = await got.post(url, {
             body: formData,
@@ -68,6 +69,7 @@ export async function process_msg(service_url, message) {
         
         console.log(response.body)
         const file_list = JSON.parse(response.body)
+        console.log('file_list', file_list)
  
         const end = process.hrtime(start);
         const seconds = (end[0] + end[1] / 1e9).toFixed(3);
