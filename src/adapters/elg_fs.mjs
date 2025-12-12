@@ -20,7 +20,7 @@ const DEFAULT_USER = 'local.user@localhost'
 
 export async function process_msg(service_url, message) {
 
-    let msg, data
+    let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -40,7 +40,7 @@ export async function process_msg(service_url, message) {
 
         
         const formData = new FormData();
-        formData.append('request', JSON.stringify(data), {contentType: 'application/json', filename: 'request.json'});
+        formData.append('request', JSON.stringify(msg), {contentType: 'application/json', filename: 'request.json'});
 
         // send payload to service endpoint 
         var url = `${service_url}/process`
@@ -56,7 +56,7 @@ export async function process_msg(service_url, message) {
         // Notify MD that we are done
         const done_md = `${MD_URL}/api/nomad/process/files/done`
         const done_md_response = await got.post(done_md, {
-            body: JSON.stringify(data),
+            body: JSON.stringify(msg),
             headers: {
                 'Content-Type': 'application/json',
                 'mail': DEFAULT_USER
