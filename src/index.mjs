@@ -40,7 +40,7 @@ let LOCAL_URL = null
 
 printInfo(TOPIC, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
 
-let nc, js, c, consumer_app_id;
+let nc, js, c, adapter_id;
 
 // Define consumers to follow
 const consumers = [TOPIC, TOPIC + "_batch"];
@@ -56,7 +56,7 @@ process.on( 'SIGINT', async function() {
     clearInterval(interval)
     // use default user as user when deleting service (not user related)
     const options = { headers: { 'mail': DEFAULT_USER } }
-    await got.delete(`${MD_URL}/api/services/${TOPIC}/consumer/${consumer_app_id}`, options)
+    await got.delete(`${MD_URL}/api/services/${TOPIC}/adapter/${adapter_id}`, options)
     await nc.close()
 	process.exit( );
 })
@@ -68,22 +68,26 @@ try {
     console.log('connecting to NATS...')
     nc = await connect({servers: NATS_URL});
     js = jetstream(nc);
-    consumer_app_id = uuidv4()
+    adapter_id = uuidv4()
 
 
     // tell MessyDesk that we are now listening messages
-    const url = `${MD_URL}/api/services/${TOPIC}/consumer/${consumer_app_id}`
+    const url = `${MD_URL}/api/services/${TOPIC}/adapter/${adapter_id}`
     console.log('registering consumer: ', url)
     // use default user as user when registering service (not user related)
     const options = { headers: { 'mail': DEFAULT_USER } }
     service_json = await got.post(url, options).json()
     console.log(service_json)
 
-    if(service_json.adapter) {  
+    if(process.env.ADAPTER ) {
+        adapter_name = process.env.ADAPTER
+    } else if(service_json.adapter) {  
         adapter_name = service_json.adapter
     } else {
-        adapter_name = process.env.ADAPTER 
+        console.log('No adapter specified in environment variable or service.json')
+        process.exit(1)
     }
+    
     LOCAL_URL = service_json.local_url
     console.log('adapter_name: ', adapter_name)
 
@@ -152,7 +156,7 @@ for (const consumer of consumers) {
         }
         const messages = await co.consume({ max_messages: 1 });
         for await (const m of messages) {
-            console.log('message: ', m)
+            //console.log('message: ', m)
             try {
                 await process_msg(service_url, m)
                 // acknowledge message

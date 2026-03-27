@@ -1,8 +1,8 @@
 IMAGES := $(shell docker images -f "dangling=true" -q)
 CONTAINERS := $(shell docker ps -a -q -f status=exited)
 VOLUME := md-consumer-thumbnailer
-VERSION := 25.10.01
-REPOSITORY := localhost
+VERSION := 0.1
+REPOSITORY := messydesk
 IMAGE := md-consumer
 
 
@@ -11,21 +11,22 @@ clean:
 	docker rmi -f $(IMAGES)
 
 build:
-	docker build -t $(REPOSITORY)/messydesk/$(IMAGE):$(VERSION) .
+	docker build -t $(REPOSITORY)/$(IMAGE):$(VERSION) .
+
 
 start_thumbnailer:
 	docker run --rm -it --name $(IMAGE) \
 		--net=host \
 		-e TOPIC=md-thumbnailer \
 		-e NOMAD=true \
-		$(REPOSITORY)/messydesk/$(IMAGE):$(VERSION) "node src/index.mjs"
+		$(REPOSITORY)/$(IMAGE):$(VERSION) "node src/index.mjs"
 
 start_topic:
 	docker run --rm -it --name $(IMAGE) \
 		--net=host \
 		-e TOPIC=$(TOPIC) \
 		-e NOMAD=true \
-		$(REPOSITORY)/messydesk/$(IMAGE):$(VERSION) "node src/index.mjs"
+		$(REPOSITORY)/$(IMAGE):$(VERSION) "node src/index.mjs"
 
 
 

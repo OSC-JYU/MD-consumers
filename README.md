@@ -1,14 +1,11 @@
 # MD-consumers
 Service adapters for MessyDesk
 
-## What are these?
+## What are this?
 
-Consumers aka service adapters are small applications that consumes messages from the main work queue of MessyDesk. This is the layer that knows the details of how to call certain service that will eventually do all the work. 
+Service adapter is application that **consumes messages from the certain queue (topic)** of MessyDesk. This is the layer that knows the details of how to call certain service that will eventually do all the work. In other words, consumers translates request from MessyDesk to API in question. 
 
-In other words, consumers translates request from MessyDesk to API in question. There are several adapter for different kind of services.
-
-One must start right consumer for each service with the name of the service.
-
+Every service has its own instance of service adapter. So if you have 6 services, then you would have 6 service adapters running also.
 
 
 ### example
@@ -28,6 +25,10 @@ If you want to run this with nomad, then add NOMAD environment variable. This wi
 
     TOPIC=md-imaginary NOMAD=1 node src/index.mjs
 
+# Container
 
+This will start thumbnailer adapter (TOPIC=md-thumbnailer) in local installation (network=host). It will also start thumbnailer service in nomad cluster (NOMAD=true). 
+
+podman run --rm -it -e TOPIC=md-thumbnailer  -e NOMAD=true --network=host osc.repo.kopla.jyu.fi/messydesk/md-consumer:26.01.12  "node src/index.mjs"
 
 

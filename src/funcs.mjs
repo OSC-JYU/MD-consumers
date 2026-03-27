@@ -112,7 +112,22 @@ export async function getFile(md_url, file_rid, user, source) {
   }
 }
 
-
+export async function getFilesZip(md_url, set_rid, user, source) {
+  const filename = uuidv4();
+  const writepath = path.join(DATA_DIR, 'source', filename);
+  const zip_url = `${md_url}/api/sets/${set_rid.replace('#', '')}/files/zip`; // this is the url to get the zip file
+  try {
+    await pipeline(
+      got.stream(zip_url, { headers: { mail: user } }),
+      createWriteStream(writepath)
+    );
+    console.log(`File downloaded to ${writepath}`);
+    return writepath;
+  } catch (error) {
+    console.error(`Error during file download or write: ${error.message}`);
+    throw error;
+  }
+}
 
 export function objectToURLParams(obj) {
     const params = [];
@@ -159,13 +174,24 @@ export async function getFilesFromStore(response, service_url, message, md_url, 
         const total = response.uri.length
         var count = 0
         
-        for(var url of response.uri) {
+        for(var file of response.uri) {
+          let url
+          if(file.uri) url = file.uri
+          else url = file
           // if service return array of files, then we keep those filenames unless file_labels is set
           message.file_total = total
           message.file_count = count + 1
+          if (file && file.thumb_name) {
+            message.thumb_name = file.thumb_name
+          } else if (message.thumb_name) {
+            delete message.thumb_name
+          }
           let filedata;
           if(file_labels && file_labels.length > count) {
             message.file.label = file_labels[count];
+            filedata = await downloadFile(url, service_url);
+          } else if (file.label) {
+            message.file.label = file.label;
             filedata = await downloadFile(url, service_url);
           } else {
             filedata = await downloadFile(url, service_url, KEEP_FILENAME);
@@ -177,6 +203,7 @@ export async function getFilesFromStore(response, service_url, message, md_url, 
       } else {
         message.file_total = 1
         message.file_count = 1
+        if(response.label) message.file.label = response.label
         const filedata = await downloadFile(response.uri, service_url)
         await sendFile(filedata, message, md_url)
       }

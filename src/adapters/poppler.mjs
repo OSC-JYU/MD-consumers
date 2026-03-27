@@ -16,6 +16,7 @@ import {
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const DEFAULT_USER = 'local.user@localhost'
+const STORAGE_MODE = (process.env.STORAGE_MODE || process.env.FILE_STORAGE_MODE || 'http').toLowerCase()
 
 
 export async function process_msg(service_url, message) {
@@ -38,15 +39,32 @@ export async function process_msg(service_url, message) {
         console.log('**************** POPPLER api ***************')
         console.log(msg)
 
-        // we try to get file from MessyDesk and put it in formdata
-        // First we try to get file from pages (firstPageToConvert = pages/page-1.pdf)
-        const page = msg.task.params.page
-        delete msg.task.params.page  // we must remove this or poppler complains
+        const taskId = msg?.task?.id
+        const url = `${service_url}/process`
+
+        // In disk mode thumbnail files are written directly by md-poppler next to source PDF.
+        if (taskId === 'thumbnail' && STORAGE_MODE === 'disk') {
+            const response = await got.post(url, {
+                json: msg,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            }).json();
+            console.log('thumbnail disk response', response)
+            return
+        }
+
+        // Poppler receives the file node content directly.
+        // `page` is only used for output naming in this adapter.
+        const page = msg?.task?.params?.page || 1
+        if (msg?.task?.params) {
+            delete msg.task.params.page  // we must remove this or poppler complains
+        }
 
         // get file from MessyDesk and put it in formdata
         const formData = new FormData();
         if(msg.file) {
-            var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId, '/pages/' + page)
+            var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId)
             const readStream = fs.createReadStream(readpath);
             formData.append('content', readStream);
         }
@@ -57,7 +75,6 @@ export async function process_msg(service_url, message) {
         formData.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
 
         // send payload to service endpoint 
-        var url = `${service_url}/process`
         const file_list = await got.post(url, {
             body: formData,
             headers: formData.getHeaders(),
@@ -65,12 +82,17 @@ export async function process_msg(service_url, message) {
         console.log('file_list', file_list)
         let file_labels = []
 
+        if (taskId === 'thumbnail') {
+            msg.role = 'thumbnail'
+            file_labels = []
+        }
+
         // 'pdfimages' can return multiple files per page, so need set the page part and then add running number
-        if(msg.task.id == 'pdfimages') {
+        if(taskId == 'pdfimages') {
             for(let i = 0; i < file_list.response.uri.length; i++) {
                 file_labels.push('page_' + page + '_image_' + (i + 1))
             }
-        } else {
+        } else if (taskId !== 'thumbnail') {
             file_labels.push('page_' + page) 
         }
 

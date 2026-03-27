@@ -9,6 +9,7 @@ import path from 'path';
 import { 
     getFilesFromStore,
     getFile,
+    getFilesZip,
     sendError
 } from '../funcs.mjs';
 
@@ -44,9 +45,15 @@ export async function process_msg(service_url, message) {
         
         // get file from MessyDesk and put it in formdata
         const formData = new FormData();
-        var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId)
-        const readStream = fs.createReadStream(readpath);
-        formData.append('content', readStream);
+        if(msg.input_set) {
+            var readpath = await getFilesZip(MD_URL, msg.input_set, msg.userId)
+            const readStream = fs.createReadStream(readpath);
+            formData.append('content', readStream);
+        } else {
+            var readpath = await getFile(MD_URL, msg.file['@rid'], msg.userId)
+            const readStream = fs.createReadStream(readpath);
+            formData.append('content', readStream);
+        }
 
         if(msg.file.source) {
             console.log('source file found', msg.file.source['@rid'])
