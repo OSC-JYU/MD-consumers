@@ -16,6 +16,17 @@ import {
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const DEFAULT_USER = 'local.user@localhost'
 
+function isThumbnailJob(msg) {
+    const topicId = String(msg?.topic?.id || '').toLowerCase();
+    const queueId = String(msg?.id || '').toLowerCase();
+    const serviceId = String(msg?.service?.id || '').toLowerCase();
+    const taskId = String(msg?.task?.id || '').toLowerCase();
+    return topicId === 'md-thumbnailer'
+        || queueId === 'md-thumbnailer'
+        || serviceId === 'md-thumbnailer'
+        || taskId === 'thumbnail';
+}
+
 
 export async function process_msg(service_url, message) {
 
@@ -153,16 +164,19 @@ export async function process_msg(service_url, message) {
 
         // TODO: fix this so that code is not duplicated!
         //  if this is a thumbnail request then create smaller thumbnail also soo that we don't need to send the full image again
-         if(msg?.topic?.id == 'md-thumbnailer') {
+         if(isThumbnailJob(msg)) {
             console.log('processing smaller thumb')
             const readStream_small = fs.createReadStream(writepath);
             const formData_small = new FormData();
             formData_small.append('file', readStream_small);
             
             // send payload to service endpoint and save result locally
-            msg.task.params.width = 200
+            const thumbParams = {
+                ...(msg?.task?.params || {}),
+                width: 200,
+            }
             msg.thumb_name = 'thumbnail.jpg'
-            const url_params_small = objectToURLParams(msg.task.params)
+            const url_params_small = objectToURLParams(thumbParams)
             var url = `${service_url}/${msg.task.id}?${url_params_small}`
             const postStream_small = got.stream.post(url, {
                 body: formData_small,
