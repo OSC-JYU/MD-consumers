@@ -10,7 +10,8 @@ import probe from 'probe-image-size';
 import { 
     getPlainText,
     getFile,
-    sendError
+    sendError,
+    withResponseTime
 } from '../funcs.mjs';
 
 
@@ -19,6 +20,7 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 export async function process_msg(service_url, message) {
 
     let msg
+    const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -96,6 +98,7 @@ export async function process_msg(service_url, message) {
         // finally send result and original message to MessyDesk
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
+        withResponseTime(msg, startedAt)
         msg.file = {label:'ocr.json',  type: 'ocr.json', extension: 'json'}
         formData_md.append('content', readStream_md);
         formData_md.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});

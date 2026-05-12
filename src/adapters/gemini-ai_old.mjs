@@ -11,7 +11,8 @@ import {
   sendJSONFile,
   sendTextFile,
   sendError,
-  getTextFromFile
+    getTextFromFile,
+    withResponseTime
 } from '../funcs.mjs';
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
@@ -21,6 +22,7 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 export async function process_msg(service_url, message) {
 
     let payload, msg
+    const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -106,12 +108,14 @@ export async function process_msg(service_url, message) {
         }
 
         const filedata = {label:'result.txt', content: AIresponse, type: 'text', ext: 'txt'}
+        withResponseTime(msg, startedAt)
         await sendTextFile(filedata, msg, url_md)
 
         const metadata = process_metadata(g_result.response)
         const output = {metadata: metadata, raw: g_result.response}
 
         const responsedata = {label:'response.json', content: output, type: 'response', ext: 'json'}
+        withResponseTime(msg, startedAt)
         await sendJSONFile(responsedata, msg, url_md + '/metadata')
 
 

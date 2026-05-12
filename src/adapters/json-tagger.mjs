@@ -9,7 +9,8 @@ import path from 'path';
 import { 
     getTextFromFile,
     getFile,
-    sendError
+    sendError,
+    withResponseTime
 } from '../funcs.mjs';
 
 
@@ -20,6 +21,7 @@ const DEFAULT_USER = 'local.user@localhost'
 export async function process_msg(service_url, message) {
     
     let msg
+    const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -75,6 +77,15 @@ export async function process_msg(service_url, message) {
             console.log(url)
             const response = await got.post(url, options)
             console.log(response.statusCode)
+
+            withResponseTime(msg, startedAt)
+            await got.post(`${MD_URL}/api/nomad/process/files/done`, {
+                body: JSON.stringify(msg),
+                headers: {
+                    'Content-Type': 'application/json',
+                    'mail': DEFAULT_USER,
+                },
+            })
 
         }
 

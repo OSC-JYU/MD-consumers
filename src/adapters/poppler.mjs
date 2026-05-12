@@ -10,7 +10,8 @@ import {
     objectToURLParams,
     getFile,
     getFilesFromStore,
-    sendError
+    sendError,
+    withResponseTime
 } from '../funcs.mjs';
 
 
@@ -22,6 +23,7 @@ const STORAGE_MODE = (process.env.STORAGE_MODE || process.env.FILE_STORAGE_MODE 
 export async function process_msg(service_url, message) {
 
     let msg
+    const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -83,6 +85,7 @@ export async function process_msg(service_url, message) {
         let file_labels = []
 
         if (taskId === 'thumbnail') {
+            withResponseTime(msg, startedAt)
             msg.role = 'thumbnail'
             file_labels = []
         }
@@ -96,7 +99,7 @@ export async function process_msg(service_url, message) {
             file_labels.push('page_' + page) 
         }
 
-        await getFilesFromStore(file_list.response, service_url, msg, url_md, file_labels)
+        await getFilesFromStore(file_list.response, service_url, msg, url_md, file_labels, startedAt)
 
 
 

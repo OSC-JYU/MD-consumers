@@ -159,8 +159,26 @@ export function getPlainText(text) {
   return lines.join(' ')
 }
 
+export function getElapsedSeconds(startTime) {
+  if(!startTime) return null
+  const end = process.hrtime(startTime)
+  return parseFloat((end[0] + end[1] / 1e9).toFixed(3))
+}
+
+export function withResponseTime(message, startTime) {
+  if(!message || !startTime) return message
+  const seconds = getElapsedSeconds(startTime)
+  if(seconds === null) return message
+
+  message.response = {
+    ...(message.response || {}),
+    time: seconds,
+  }
+  return message
+}
+
 // get output files from service and send them to MessyDesk
-export async function getFilesFromStore(response, service_url, message, md_url, file_labels) {
+export async function getFilesFromStore(response, service_url, message, md_url, file_labels, startedAt = null) {
 
   if(Array.isArray(file_labels) && file_labels.length > 0) {
     message.file.label = file_labels[0]
@@ -196,6 +214,7 @@ export async function getFilesFromStore(response, service_url, message, md_url, 
           } else {
             filedata = await downloadFile(url, service_url, KEEP_FILENAME);
           }
+          withResponseTime(message, startedAt)
           await sendFile(filedata, message, md_url)
           count++
         }
@@ -205,6 +224,7 @@ export async function getFilesFromStore(response, service_url, message, md_url, 
         message.file_count = 1
         if(response.label) message.file.label = response.label
         const filedata = await downloadFile(response.uri, service_url)
+        withResponseTime(message, startedAt)
         await sendFile(filedata, message, md_url)
       }
     } else {

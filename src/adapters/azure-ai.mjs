@@ -8,7 +8,8 @@ import {
     sendTextFile,
     sendJSONFile,
     getFileBuffer,
-    sendError
+  sendError,
+  withResponseTime
 } from '../funcs.mjs';
 
 
@@ -103,6 +104,7 @@ const TestSchema = createSchema({
 export async function process_msg(service_url, message) {
 
     let payload, msg
+  const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -217,10 +219,12 @@ export async function process_msg(service_url, message) {
                 content = {error: 'Error parsing JSON'}
                 filedata = {label:label, content: content, type: 'json', ext: 'json'}
             }
+            withResponseTime(msg, startedAt)
             await sendJSONFile(filedata, msg, url_md)
         }
         else {
             filedata = {label:label, content: AIresponse, type: 'text', ext: 'txt'}
+            withResponseTime(msg, startedAt)
             await sendTextFile(filedata, msg, url_md)
         }
 
@@ -229,6 +233,7 @@ export async function process_msg(service_url, message) {
         console.log(metadata)
         const output = {metadata: metadata, raw: response} 
         const responsedata = {label:'response.json', content: output, type: 'response', ext: 'json'}
+        withResponseTime(msg, startedAt)
         await sendJSONFile(responsedata, msg, url_md + '/metadata')
 
 

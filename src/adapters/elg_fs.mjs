@@ -3,7 +3,8 @@ import got from 'got'
 import path from 'path';
 
 import { 
-    sendError
+    sendError,
+    getElapsedSeconds
 } from '../funcs.mjs';
 
 
@@ -62,7 +63,7 @@ function normalizeServiceFiles(serviceResponse) {
 }
 
 
-async function sendTmpFilesToMessyDesk(msg, serviceResponse) {
+async function sendTmpFilesToMessyDesk(msg, serviceResponse, startedAt = null) {
     const files = normalizeServiceFiles(serviceResponse)
     if (files.length === 0) {
         return { sent: 0, failed: 0 }
@@ -98,7 +99,14 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse) {
             current_file: i + 1,
             service: msg.service,
             task: msg.task,
-            response: serviceResponse?.response,
+            role: msg.role || (msg?.task?.id === 'thumbnail' ? 'thumbnail' : undefined),
+            response: {
+                ...(serviceResponse?.response || {}),
+            },
+        }
+        const elapsed = getElapsedSeconds(startedAt)
+        if(elapsed !== null) {
+            callbackMessage.response.time = elapsed
         }
 
         try {
@@ -150,6 +158,7 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse) {
 export async function process_msg(service_url, message) {
 
     let msg
+    const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -181,7 +190,7 @@ export async function process_msg(service_url, message) {
         
         console.log(serviceResult.response.files)
 
-        const outputInfo = await sendTmpFilesToMessyDesk(msg, serviceResult)
+        const outputInfo = await sendTmpFilesToMessyDesk(msg, serviceResult, startedAt)
         console.log('tmp outputs', outputInfo)
 
         if (serviceResult?.response?.type === 'disk') {
@@ -194,6 +203,14 @@ export async function process_msg(service_url, message) {
 
         const metadata = serviceResult?.metadata || serviceResult || {}
         msg.file.metadata = {...msg.file.metadata, ...metadata}
+        const elapsed = getElapsedSeconds(startedAt)
+        msg.response = {
+            ...(msg.response || {}),
+            ...(serviceResult?.response || {}),
+        }
+        if(elapsed !== null) {
+            msg.response.time = elapsed
+        }
 
         // Notify MD that we are done
         const done_md = `${MD_URL}/api/nomad/process/files/done`

@@ -13,7 +13,8 @@ import {
     sendStringTextFile,
     sendTextFile,
     sendError,
-    sendDone
+    sendDone,
+    withResponseTime
 } from '../funcs.mjs';
 
 
@@ -24,6 +25,7 @@ const DEFAULT_USER = 'local.user@localhost'
 export async function process_msg(service_url, message_raw) {
 
     let msg
+    const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
     // make sure that we have valid payload
@@ -125,6 +127,7 @@ export async function process_msg(service_url, message_raw) {
             // save metafields to init.json
             const metadata_url = `${MD_URL}/api/nomad/process/files/metadata`
             const responsedata = {label:'init.json', content: JSON.stringify(init_data, null, 2), type: 'response', ext: 'json'}
+            withResponseTime(msg, startedAt)
             await sendTextFile(responsedata, msg, metadata_url)
      
             console.log('init.json sent!')
@@ -160,6 +163,7 @@ export async function process_msg(service_url, message_raw) {
                         .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
                         .replace(/["']/g, '') // Remove quotes
                     const responsedata = {label:label + '.json', content: JSON.stringify(item._embedded.indexableObject, null, 2), type: 'dspace7.json', ext: 'dspace7.json'}
+                    withResponseTime(msg, startedAt)
                     await sendTextFile(responsedata, msg, url_md, true)
                 }
             } catch (error) {
@@ -206,6 +210,7 @@ export async function process_msg(service_url, message_raw) {
                 }
 
                 var responsedata = {label:item.name + '.txt', content: abstract, type: 'text', ext: 'txt'}
+                withResponseTime(msg, startedAt)
                 await sendStringTextFile(responsedata, msg, url_md)
             }
         }
