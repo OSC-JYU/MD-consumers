@@ -1,7 +1,7 @@
 IMAGES := $(shell docker images -f "dangling=true" -q)
 CONTAINERS := $(shell docker ps -a -q -f status=exited)
 VOLUME := md-consumer-thumbnailer
-VERSION := 0.1
+VERSION := 0.2
 REPOSITORY := messydesk
 IMAGE := md-consumer
 

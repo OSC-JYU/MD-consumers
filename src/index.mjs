@@ -8,6 +8,10 @@ import {
     createService,
     createDataDir, 
     printInfo,
+    resolveDescriptorSourceChain,
+    resolveNomadHclPath,
+    getRuntimeConfigDescriptor,
+    registerServiceDescriptorWithRetry,
 } from './funcs.mjs';
 
 import { connect } from "@nats-io/transport-node";
@@ -31,11 +35,38 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 
 const REDELIVERY_COUNT = process.env.REDELIVERY_COUNT || 5
 const DEV_URL = process.env.DEV_URL || null
+const HELP_URL = process.env.HELP_URL || null
+const SERVICE_JSON_PATH = process.env.SERVICE_JSON_PATH || process.env.SERVICE_DESCRIPTOR_PATH || null
 const NOMAD = process.env.NOMAD || null
+const NOMAD_HCL_PATH_ENV = process.env.NOMAD_HCL_PATH || null
 
 const DEFAULT_USER = 'local.user@localhost'
+const REGISTRATION_MAX_ATTEMPTS = Number(process.env.REGISTRATION_MAX_ATTEMPTS || 5)
+const REGISTRATION_INITIAL_DELAY_MS = Number(process.env.REGISTRATION_INITIAL_DELAY_MS || 500)
+const NOMAD_ENABLED = ['1', 'true', 'yes', 'on'].includes(String(NOMAD || '').toLowerCase())
+const USE_LEGACY_NOMAD_METADATA = NOMAD_ENABLED && !NOMAD_HCL_PATH_ENV
 
 let LOCAL_URL = null
+
+async function triggerServiceHelpIngest(serviceId, descriptor = null) {
+    const ingestUrl = `${MD_URL}/api/services/${serviceId}/help/ingest`
+    const configuredHelpUrl = HELP_URL || descriptor?.help_url || null
+    try {
+        const options = { headers: { 'mail': DEFAULT_USER } }
+        if(configuredHelpUrl) {
+            options.searchParams = { help_url: configuredHelpUrl }
+        }
+        await got.post(ingestUrl, options).json()
+        console.log('service help ingested:', serviceId)
+    } catch (error) {
+        const status = error?.response?.statusCode
+        const detail = error?.response?.body || error.message
+        console.log(`WARN: service help ingest failed for ${serviceId}${status ? ` (${status})` : ''}`)
+        if (detail) {
+            console.log(detail)
+        }
+    }
+}
 
 
 printInfo(TOPIC, NOMAD_URL, NATS_URL, MD_URL, REDELIVERY_COUNT)
@@ -65,10 +96,87 @@ process.on( 'SIGINT', async function() {
 try {
     console.log('creating data directory...')
     await createDataDir()
-    console.log('connecting to NATS...')
-    nc = await connect({servers: NATS_URL});
-    js = jetstream(nc);
     adapter_id = uuidv4()
+
+    const bootstrap = await resolveDescriptorSourceChain({
+        topic: TOPIC,
+        adapterName: process.env.ADAPTER || null,
+        descriptorPath: SERVICE_JSON_PATH,
+        mdUrl: MD_URL,
+        serviceUrl: null,
+        user: DEFAULT_USER,
+    });
+    service_json = bootstrap.descriptor
+
+    adapter_name = process.env.ADAPTER || service_json.adapter || null
+
+    if(DEV_URL) {
+        service_url = DEV_URL
+    } else {
+        service_url = await getServiceURL(NOMAD_URL, request_json, service_json)
+    }
+
+    const nomadHclPath = NOMAD_HCL_PATH_ENV || await resolveNomadHclPath(TOPIC, {
+        descriptorPath: SERVICE_JSON_PATH,
+        adapterName: adapter_name,
+    })
+
+    if(!service_url) {
+        console.log(TOPIC, ': no service found')
+        console.log('starting service...')
+        try {
+            if(nomadHclPath) {
+                console.log('using nomad spec from:', nomadHclPath)
+            }
+            await createService(MD_URL, TOPIC, { nomadHclPath: nomadHclPath })
+            service_url = await getService(request_json, service_json)
+        } catch(e) {
+            console.log('Error in starting service with MessyDesk API:', e)
+            console.log('Provide NOMAD_HCL_PATH or place nomad.hcl under descriptors/<topic>/ (or .descriptors/<topic>/), or run service manually and provide DEV_URL')
+            process.exit(1)
+        }
+    }
+
+    let registrationSource = 'runtime-config'
+    if(USE_LEGACY_NOMAD_METADATA) {
+        console.log('using legacy Nomad metadata from MessyDesk services directory...')
+        const resolved = await resolveDescriptorSourceChain({
+            topic: TOPIC,
+            adapterName: adapter_name,
+            descriptorPath: SERVICE_JSON_PATH,
+            mdUrl: MD_URL,
+            serviceUrl: null,
+            user: DEFAULT_USER,
+        })
+        service_json = resolved.descriptor
+        registrationSource = resolved.source
+    } else {
+        console.log('fetching service info from /config...')
+        const runtimeDescriptor = await getRuntimeConfigDescriptor(service_url, TOPIC)
+        if(!runtimeDescriptor) {
+            throw new Error(`Registration cancelled: service ${TOPIC} /config is not available`)
+        }
+        service_json = runtimeDescriptor
+    }
+
+    if(!adapter_name && service_json?.adapter) {
+        adapter_name = service_json.adapter
+    }
+
+    if(!adapter_name) {
+        throw new Error('No adapter specified in environment variable or service descriptor (including runtime /config)')
+    }
+
+    await registerServiceDescriptorWithRetry({
+        mdUrl: MD_URL,
+        descriptor: service_json,
+        source: registrationSource,
+        user: DEFAULT_USER,
+        maxAttempts: REGISTRATION_MAX_ATTEMPTS,
+        initialDelayMs: REGISTRATION_INITIAL_DELAY_MS,
+    })
+
+    await triggerServiceHelpIngest(TOPIC, service_json)
 
 
     // tell MessyDesk that we are now listening messages
@@ -76,17 +184,8 @@ try {
     console.log('registering consumer: ', url)
     // use default user as user when registering service (not user related)
     const options = { headers: { 'mail': DEFAULT_USER } }
-    service_json = await got.post(url, options).json()
+    await got.post(url, options).json()
     console.log(service_json)
-
-    if(process.env.ADAPTER ) {
-        adapter_name = process.env.ADAPTER
-    } else if(service_json.adapter) {  
-        adapter_name = service_json.adapter
-    } else {
-        console.log('No adapter specified in environment variable or service.json')
-        process.exit(1)
-    }
     
     LOCAL_URL = service_json.local_url
     console.log('adapter_name: ', adapter_name)
@@ -98,38 +197,59 @@ try {
     // keep polling the endpoint so that MessyDesk is aware services even after restart
     interval = setInterval(async () => {
         try {
+            let heartbeatSource = 'runtime-config'
+            if(USE_LEGACY_NOMAD_METADATA) {
+                const resolved = await resolveDescriptorSourceChain({
+                    topic: TOPIC,
+                    adapterName: adapter_name,
+                    descriptorPath: SERVICE_JSON_PATH,
+                    mdUrl: MD_URL,
+                    serviceUrl: null,
+                    user: DEFAULT_USER,
+                })
+                service_json = resolved.descriptor
+                heartbeatSource = resolved.source
+            } else {
+                const liveDescriptor = await getRuntimeConfigDescriptor(service_url, TOPIC)
+                if(!liveDescriptor) {
+                    console.log('Registration skipped: /config is not available')
+                    return
+                }
+                service_json = liveDescriptor
+            }
+            await registerServiceDescriptorWithRetry({
+                mdUrl: MD_URL,
+                descriptor: service_json,
+                source: heartbeatSource,
+                user: DEFAULT_USER,
+                maxAttempts: 3,
+                initialDelayMs: REGISTRATION_INITIAL_DELAY_MS,
+            })
             await got.post(url, options).json();
         } catch (e) {
             console.log('ERROR:', e.message);
         }
     }, 30000);
 
-} catch(e) {
-    console.log(`ERROR: Problem with NATS on ${NATS_URL}\n with consumer "${TOPIC}" in stream ${STREAM}`)
-    console.log( e.message)
-    process.exit(1)
-}
+    console.log('connecting to NATS...')
+    nc = await connect({servers: NATS_URL});
+    js = jetstream(nc);
 
-// start service if needed
-if(DEV_URL) {
-    service_url = DEV_URL
-} else {
-    service_url = await getServiceURL(NOMAD_URL, request_json, service_json)
+} catch(e) {
+    if(String(e?.message || '').includes('/config is not available')) {
+        console.log(`ERROR: Service registration cancelled for "${TOPIC}"`)
+        console.log(e.message)
+        console.log('HINT: start the service first, then run the consumer.')
+    } else {
+        console.log(`ERROR: Problem with NATS on ${NATS_URL}\n with consumer "${TOPIC}" in stream ${STREAM}`)
+        console.log(e.message)
+    }
+    process.exit(1)
 }
 
 if(service_url) {
     console.log(TOPIC, ': ready for messages...')
     console.log('SERVICE URL: ', service_url)
-} else {
-    console.log(TOPIC, ': no service found')
-    console.log('starting service...')
-    try {
-        await createService(MD_URL, TOPIC)  
-    } catch(e) {
-        console.log('Error in starting service with MessyDesk API:', e)
-        console.log('Write nomad.hcl and place in services directory or run service manually and provide url with DEV_URL')
-        process.exit(1)
-    }     
 }
     
 

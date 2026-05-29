@@ -62,12 +62,16 @@ async function sleep(ms) {
   });
 }
 
-export async function createService(md_url, service) {
+export async function createService(md_url, service, options = {}) {
   const url = md_url + `/api/nomad/service/${service}`
   console.log('creating service:', url)
   try {
-      const options = { headers: { 'mail': DEFAULT_USER } }
-      var response = await got.post(url, options).json()  
+      const requestOptions = { headers: { 'mail': DEFAULT_USER } }
+      if(options.nomadHclPath) {
+        const nomadHcl = await fs.readFile(options.nomadHclPath, 'utf-8')
+        requestOptions.json = { nomad_hcl: nomadHcl }
+      }
+      var response = await got.post(url, requestOptions).json()  
       return response
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
@@ -436,4 +440,196 @@ function getHeaders(user) {
     }
   }
   return options    
+}
+
+function normalizeDescriptor(descriptor, topic) {
+  if(!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) return null;
+  const normalized = { ...descriptor };
+  if(!normalized.id) normalized.id = topic;
+  if(typeof normalized.id !== 'string' || normalized.id.trim().length === 0) return null;
+  if(normalized.tasks !== undefined && (typeof normalized.tasks !== 'object' || Array.isArray(normalized.tasks))) {
+    return null;
+  }
+  return normalized;
+}
+
+async function readJSONIfExists(filePath) {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(content);
+  } catch(error) {
+    if(error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch(error) {
+    if(error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+export async function getBackendServiceDescriptor(md_url, topic, user = DEFAULT_USER) {
+  try {
+    const descriptor = await got.get(`${md_url}/api/services/${topic}`, { headers: { mail: user } }).json();
+    return normalizeDescriptor(descriptor, topic);
+  } catch(error) {
+    return null;
+  }
+}
+
+export async function getAdapterServiceDescriptor(topic, adapterName = null, descriptorPath = null) {
+  const candidates = [];
+  const explicitDescriptorPath = descriptorPath
+    ? (path.isAbsolute(descriptorPath) ? descriptorPath : path.resolve(process.cwd(), descriptorPath))
+    : null;
+
+  if(explicitDescriptorPath) {
+    candidates.push(explicitDescriptorPath);
+  }
+
+  candidates.push(
+    path.join(process.cwd(), '.descriptors', topic, 'service.json'),
+    path.join(process.cwd(), '.descriptors', topic, 'service.json.json'),
+    path.join(process.cwd(), 'descriptors', topic, 'service.json'),
+    path.join(process.cwd(), 'descriptors', topic, 'service.json.json'),
+    path.join(process.cwd(), 'descriptors', `${topic}.json`),
+    path.join(process.cwd(), 'src', 'adapters', `${topic}.service.json`),
+  );
+
+  if(adapterName) {
+    candidates.push(path.join(process.cwd(), '.descriptors', adapterName, 'service.json'));
+    candidates.push(path.join(process.cwd(), 'descriptors', adapterName, 'service.json'));
+    candidates.push(path.join(process.cwd(), 'src', 'adapters', `${adapterName}.service.json`));
+  }
+
+  for(const candidate of candidates) {
+    const parsed = await readJSONIfExists(candidate);
+    if(parsed) {
+      const normalized = normalizeDescriptor(parsed, topic);
+      if(normalized) return normalized;
+
+      if(explicitDescriptorPath && candidate === explicitDescriptorPath) {
+        throw new Error(`Invalid descriptor at ${explicitDescriptorPath}: descriptor must be a JSON object with valid id/tasks fields`);
+      }
+    }
+  }
+
+  if(explicitDescriptorPath) {
+    throw new Error(`Descriptor file not found: ${explicitDescriptorPath}`);
+  }
+
+  return null;
+}
+
+export async function resolveNomadHclPath(topic, options = {}) {
+  const descriptorPath = options.descriptorPath || null;
+  const adapterName = options.adapterName || null;
+
+  const candidates = [];
+  const explicitDescriptorPath = descriptorPath
+    ? (path.isAbsolute(descriptorPath) ? descriptorPath : path.resolve(process.cwd(), descriptorPath))
+    : null;
+
+  if(explicitDescriptorPath) {
+    candidates.push(path.join(path.dirname(explicitDescriptorPath), 'nomad.hcl'));
+  }
+
+  candidates.push(path.join(process.cwd(), '.descriptors', topic, 'nomad.hcl'));
+  candidates.push(path.join(process.cwd(), 'descriptors', topic, 'nomad.hcl'));
+
+  if(adapterName) {
+    candidates.push(path.join(process.cwd(), '.descriptors', adapterName, 'nomad.hcl'));
+    candidates.push(path.join(process.cwd(), 'descriptors', adapterName, 'nomad.hcl'));
+  }
+
+  for(const candidate of candidates) {
+    if(await pathExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+export async function getRuntimeConfigDescriptor(service_url, topic) {
+  if(!service_url) return null;
+  const base = service_url.startsWith('http') ? service_url : `http://${service_url}`;
+  try {
+    const descriptor = await got.get(`${base}/config`, { timeout: { request: 5000 } }).json();
+    return normalizeDescriptor(descriptor, topic);
+  } catch(error) {
+    return null;
+  }
+}
+
+export async function registerServiceDescriptor(md_url, descriptor, source = 'runtime', user = DEFAULT_USER) {
+  if(!descriptor) return null;
+  const response = await got.post(`${md_url}/api/services/register`, {
+    json: {
+      source,
+      service: descriptor,
+    },
+    headers: { mail: user },
+  }).json();
+  return response;
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function registerServiceDescriptorWithRetry({
+  mdUrl,
+  descriptor,
+  source = 'runtime',
+  user = DEFAULT_USER,
+  maxAttempts = 5,
+  initialDelayMs = 500,
+  maxDelayMs = 10000,
+}) {
+  if(!descriptor) return null;
+
+  let attempt = 0;
+  let delayMs = initialDelayMs;
+  let lastError = null;
+
+  while(attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      return await registerServiceDescriptor(mdUrl, descriptor, source, user);
+    } catch(error) {
+      lastError = error;
+      if(attempt >= maxAttempts) {
+        break;
+      }
+      await sleepMs(delayMs);
+      delayMs = Math.min(delayMs * 2, maxDelayMs);
+    }
+  }
+
+  throw lastError;
+}
+
+export async function resolveDescriptorSourceChain({ topic, adapterName = null, descriptorPath = null, mdUrl, serviceUrl = null, user = DEFAULT_USER }) {
+  const runtimeDescriptor = await getRuntimeConfigDescriptor(serviceUrl, topic);
+  if(runtimeDescriptor) {
+    return { descriptor: runtimeDescriptor, source: 'runtime-config' };
+  }
+
+  const adapterDescriptor = await getAdapterServiceDescriptor(topic, adapterName, descriptorPath);
+  if(adapterDescriptor) {
+    return { descriptor: adapterDescriptor, source: descriptorPath ? 'explicit-descriptor' : 'adapter-descriptor' };
+  }
+
+  const backendDescriptor = await getBackendServiceDescriptor(mdUrl, topic, user);
+  if(backendDescriptor) {
+    return { descriptor: backendDescriptor, source: 'backend-registry' };
+  }
+
+  return { descriptor: { id: topic, tasks: {} }, source: 'topic-fallback' };
 }

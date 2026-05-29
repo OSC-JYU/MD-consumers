@@ -12,6 +12,37 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const DEFAULT_USER = 'local.user@localhost'
 
 
+async function shouldContinueBatch(msg) {
+    const processRid = String(msg?.set_process || msg?.process?.['@rid'] || '').trim()
+    if (!processRid) return true
+
+    const rid = processRid.replace('#', '')
+    const url = `${MD_URL}/api/batches/${rid}`
+
+    try {
+        const batch = await got.get(url, {
+            headers: {
+                'mail': DEFAULT_USER,
+            },
+        }).json()
+
+        const status = String(batch?.status || batch?.state || 'running').toLowerCase()
+        if (['cancelled', 'cancelling', 'paused', 'done'].includes(status)) {
+            return false
+        }
+        return true
+    } catch (err) {
+        // If status check fails, do not block processing. Best-effort safety only.
+        console.log('batch status check failed', {
+            processRid,
+            message: err?.message,
+            statusCode: err?.response?.statusCode,
+        })
+        return true
+    }
+}
+
+
 function inferOutputType(extension) {
     const ext = String(extension || '').toLowerCase()
     if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) return 'image'
@@ -38,7 +69,11 @@ function normalizeServiceFiles(serviceResponse) {
             const label = file.label || path.basename(fileRef)
             const extension = (file.extension || getExtFromLabel(label) || path.extname(fileRef).replace('.', '')).toLowerCase()
             const type = file.type || inferOutputType(extension)
-            files.push({ fileRef, label, extension, type })
+            const normalized = { fileRef, label, extension, type }
+            if (Number.isFinite(Number(file.page_number))) {
+                normalized.page_number = Number(file.page_number)
+            }
+            files.push(normalized)
         }
         return files
     }
@@ -73,8 +108,16 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse, startedAt = null) {
     let failed = 0
     const urlTmp = `${MD_URL}/api/nomad/process/files/tmp`
     const sourceFile = msg.file || {}
+    const parentTotalFiles = Number(msg?.batch_total_files || msg?.total_files || 0)
+    const parentCurrentFile = Number(msg?.current_file || 0)
+    const hasParentBatchCounters = parentTotalFiles > 0 && parentCurrentFile > 0
 
     for (let i = 0; i < files.length; i += 1) {
+        const canContinue = await shouldContinueBatch(msg)
+        if (!canContinue) {
+            break
+        }
+
         const file = files[i]
         const callbackTmpName = path.basename(String(file.fileRef || file.label || ''))
         if (!callbackTmpName || callbackTmpName === '.' || callbackTmpName === '..') {
@@ -89,20 +132,29 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse, startedAt = null) {
                 extension: file.extension,
                 label: file.label,
                 source: sourceFile,
+                ...(Number.isFinite(Number(file.page_number)) ? { page_number: Number(file.page_number) } : {}),
             },
             target: msg.target || sourceFile.project_rid,
             process: msg.process,
             output_set: msg.output_set,
             set_process: msg.set_process,
             userId: msg.userId,
-            total_files: files.length,
-            current_file: i + 1,
+            // Keep original batch counters when this callback belongs to set-processing.
+            // Otherwise a per-file service response (often length 1) would mark the whole batch done too early.
+            total_files: hasParentBatchCounters ? parentTotalFiles : files.length,
+            current_file: hasParentBatchCounters ? parentCurrentFile : (i + 1),
+            // Keep per-request output counters for debugging/consumers that need them.
+            file_total: files.length,
+            file_count: i + 1,
             service: msg.service,
             task: msg.task,
             role: msg.role || (msg?.task?.id === 'thumbnail' ? 'thumbnail' : undefined),
             response: {
                 ...(serviceResponse?.response || {}),
             },
+        }
+        if (hasParentBatchCounters) {
+            callbackMessage.batch_total_files = parentTotalFiles
         }
         const elapsed = getElapsedSeconds(startedAt)
         if(elapsed !== null) {

@@ -25,6 +25,19 @@ If you want to run this with nomad, then add NOMAD environment variable. This wi
 
     TOPIC=md-imaginary NOMAD=1 node src/index.mjs
 
+## Optional environment variables
+
+- `SERVICE_JSON_PATH`: Explicit path to service descriptor JSON (for example `../MessyDesk/services/md-azure-ai/service.json`).
+    - If set, consumer will use this descriptor path as descriptor source fallback when `/config` is not available.
+    - This is useful when descriptor file is outside default `descriptors/` and `src/adapters/*.service.json` locations.
+- `HELP_URL`: Explicit URL for service help ingestion source.
+    - Useful for external API services that do not provide `/help` endpoint.
+    - If not set, consumer falls back to descriptor `help_url`, then descriptor `source_url`.
+
+Example:
+
+        TOPIC=md-azure-ai SERVICE_JSON_PATH=../MessyDesk/services/md-azure-ai/service.json HELP_URL=https://learn.microsoft.com/en-us/azure/ai-services/openai/reference node src/index.mjs
+
 # Container
 
 This will start thumbnailer adapter (TOPIC=md-thumbnailer) in local installation (network=host). It will also start thumbnailer service in nomad cluster (NOMAD=true). 
