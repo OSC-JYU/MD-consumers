@@ -1,9 +1,9 @@
 # MD-consumers
 Service adapters for MessyDesk
 
-## What are this?
+## What are service adapters?
 
-Service adapter is application that **consumes messages from the certain queue (topic)** of MessyDesk and connects them to actual service. In other words, consumers translates request from MessyDesk to service API in question. 
+Service adapter is application that **consumes messages from the certain queue (topic)** of MessyDesk and connects them to actual service.
 
 Every service has its own instance of service adapter. So if you have 6 services, then you would have 6 service adapters running also.
 
@@ -30,6 +30,8 @@ This would start service container (md-tesseract) witn nomad and adapter code wi
 If API is external - like commercial inference APIs for example - then you need a service.json that tells system what adapter to use and where service is located.
 
 TODO: documentation
+
+
 
 ## Optional environment variables
 

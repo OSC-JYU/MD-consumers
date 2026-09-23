@@ -22,7 +22,7 @@ import { startControlServer } from './server.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const TOPIC = process.env.TOPIC;
+const TOPIC = process.env.TOPIC || null;
 const NOMAD_URL = process.env.NOMAD_URL || 'http://localhost:4646/v1';
 const MD_URL = process.env.MD_URL || 'http://localhost:8200';
 const DEV_URL = process.env.DEV_URL || null;
@@ -35,7 +35,6 @@ const DEFAULT_USER = 'local.user@localhost';
 const REGISTRATION_MAX_ATTEMPTS = Number(process.env.REGISTRATION_MAX_ATTEMPTS || 5);
 const REGISTRATION_INITIAL_DELAY_MS = Number(process.env.REGISTRATION_INITIAL_DELAY_MS || 500);
 const HAS_EXPLICIT_DESCRIPTOR_PATH = Boolean(SERVICE_JSON_PATH);
-const STRICT_TOPIC_ID = !['0', 'false', 'no', 'off'].includes(String(process.env.STRICT_TOPIC_ID || 'true').toLowerCase());
 
 const POLL_MIN_MS = Number(process.env.POLL_MIN_MS || 100);
 const POLL_MAX_MS = Number(process.env.POLL_MAX_MS || 2000);
@@ -47,10 +46,6 @@ const DEV_URL_WAIT_STEP_MS = Number(process.env.DEV_URL_WAIT_STEP_MS || 1000);
 const DEV_URL_PROBE_TIMEOUT_MS = Number(process.env.DEV_URL_PROBE_TIMEOUT_MS || 3000);
 const DESCRIPTOR_WAIT_MAX_MS = Number(process.env.DESCRIPTOR_WAIT_MAX_MS || 15000);
 const DESCRIPTOR_WAIT_STEP_MS = Number(process.env.DESCRIPTOR_WAIT_STEP_MS || 1000);
-
-if (!TOPIC) {
-  throw new Error('TOPIC environment variable is required');
-}
 
 function resolveDescriptorPathForRuntime(inputPath) {
   if (!inputPath) return null;
@@ -92,21 +87,20 @@ if (SERVICE_JSON_PATH && SERVICE_JSON_PATH !== EFFECTIVE_SERVICE_JSON_PATH) {
   console.log(`resolved SERVICE_JSON_PATH: ${SERVICE_JSON_PATH} -> ${EFFECTIVE_SERVICE_JSON_PATH}`);
 }
 
-function validateTopicIdMatch(descriptor, source = 'descriptor') {
-  if (!descriptor || typeof descriptor !== 'object') {
-    return;
-  }
+if (!TOPIC) {
+  throw new Error('TOPIC environment variable is required');
+}
 
-  const descriptorId = descriptor.id;
-  if (!descriptorId || descriptorId === TOPIC) {
-    return;
-  }
+// Each consumer owns exactly one Nomad job/service instance (never a shared pool), so its
+// Nomad identity must be unique even when several consumers share one TOPIC for queue claiming.
+// Defaults to TOPIC for the common single-instance case; override to run N dedicated instances
+// behind the same TOPIC, e.g. NOMAD_INSTANCE_ID=md-sharp-1 / md-sharp-2.
+const NOMAD_INSTANCE_ID = process.env.NOMAD_INSTANCE_ID || TOPIC;
 
-  const message = `Descriptor id mismatch from ${source}: TOPIC (${TOPIC}) does not match descriptor id (${descriptorId}). Fix service /config id or use matching TOPIC. Set STRICT_TOPIC_ID=false to bypass (not recommended).`;
-  if (STRICT_TOPIC_ID) {
-    throw new Error(message);
-  }
-  console.log(`WARN: ${message}`);
+// TOPIC always wins as the registry/queue identity, overriding the descriptor's own `id`.
+function withTopicAsId(descriptor) {
+  if (!descriptor || typeof descriptor !== 'object') return descriptor;
+  return { ...descriptor, id: TOPIC };
 }
 
 function normalizeServiceUrl(serviceUrl) {
@@ -325,8 +319,8 @@ async function shutdown(signal = 'SIGINT') {
 
   try {
     if (serviceStartedByConsumer && NOMAD_MODE) {
-      await stopService(MD_URL, TOPIC);
-      console.log('nomad service stopped:', TOPIC);
+      await stopService(MD_URL, NOMAD_INSTANCE_ID);
+      console.log('nomad service stopped:', NOMAD_INSTANCE_ID);
     }
   } catch (e) {
     console.log('cleanup error (nomad stop):', e.message);
@@ -358,7 +352,7 @@ async function main() {
   await createDataDir();
 
   adapter_id = uuidv4();
-  const request_json = { topic: TOPIC };
+  const request_json = { topic: NOMAD_INSTANCE_ID };
 
   // --- Resolve initial descriptor for startup overrides ---
   let service_json = { id: TOPIC, tasks: {} };
@@ -372,8 +366,7 @@ async function main() {
       user: DEFAULT_USER,
       waitForRuntime: false,
     });
-    service_json = bootstrap.descriptor;
-    validateTopicIdMatch(service_json, bootstrap.source || 'explicit-descriptor');
+    service_json = withTopicAsId(bootstrap.descriptor);
   }
 
   let adapter_name = process.env.ADAPTER || service_json.adapter || null;
@@ -386,11 +379,11 @@ async function main() {
   });
 
   if (!service_url) {
-    console.log(TOPIC, ': no service found');
+    console.log(NOMAD_INSTANCE_ID, ': no service found');
     console.log('starting service...');
     try {
       if (nomadHclPath) console.log('using nomad spec from:', nomadHclPath);
-      await createService(MD_URL, TOPIC, { nomadHclPath });
+      await createService(MD_URL, NOMAD_INSTANCE_ID, { nomadHclPath });
       serviceStartedByConsumer = true;
       service_url = await waitForService(request_json, service_json, NOMAD_MODE);
     } catch (e) {
@@ -421,9 +414,8 @@ async function main() {
     user: DEFAULT_USER,
     waitForRuntime: true,
   });
-  service_json = resolvedRegistration.descriptor;
+  service_json = withTopicAsId(resolvedRegistration.descriptor);
   const registrationSource = resolvedRegistration.source;
-  validateTopicIdMatch(service_json, registrationSource);
 
   if (!adapter_name && service_json?.adapter) {
     adapter_name = service_json.adapter;
@@ -468,9 +460,8 @@ async function main() {
         user: DEFAULT_USER,
         waitForRuntime: false,
       });
-      service_json = resolvedHeartbeat.descriptor;
+      service_json = withTopicAsId(resolvedHeartbeat.descriptor);
       const heartbeatSource = resolvedHeartbeat.source;
-      validateTopicIdMatch(service_json, heartbeatSource);
       await registerServiceDescriptorWithRetry({
         mdUrl: MD_URL,
         descriptor: service_json,

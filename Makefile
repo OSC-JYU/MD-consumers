@@ -19,21 +19,21 @@ start_thumbnailer:
 		--net=host \
 		-e TOPIC=md-thumbnailer \
 		-e NOMAD_HCL_PATH=$(NOMAD_HCL_PATH) \
-		$(REPOSITORY)/$(IMAGE):$(VERSION) "node src/index.mjs"
+		$(REPOSITORY)/$(IMAGE):$(VERSION)
 
 start_topic:
 	docker run --rm -it --name $(IMAGE) \
 		--net=host \
 		-e TOPIC=$(TOPIC) \
 		-e NOMAD_HCL_PATH=$(NOMAD_HCL_PATH) \
-		$(REPOSITORY)/$(IMAGE):$(VERSION) "node src/index.mjs"
+		$(REPOSITORY)/$(IMAGE):$(VERSION)
 
 start_tesseract:
 	docker run --rm -it --name $(IMAGE) \
 		--net=host \
 		-e TOPIC=md-tesseract \
 		-e NOMAD_HCL_PATH=$(NOMAD_HCL_PATH) \
-		$(REPOSITORY)/$(IMAGE):$(VERSION) "node src/index.mjs"
+		$(REPOSITORY)/$(IMAGE):$(VERSION)
 
 
 
