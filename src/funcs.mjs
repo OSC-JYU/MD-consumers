@@ -23,16 +23,16 @@ export async function createDataDir() {
 	}
 }
 
-export async function getServiceURL(nomad_url, request, service, nomad, wait) {
+export async function getServiceURL(nomad_url, request, service, nomadMode, wait) {
   console.log('request:', request)
-  if(!request.nomad) {
+  if(!nomadMode) {
     if(service.dev_url) return service.dev_url
     if(service.local_url) return service.local_url
     return 'http://dummy.service.com'
     //if(service.source_url) return service.source_url
   }
-	// NOTE: this gives only the first address
-	const url = nomad_url + `/service/${request.topic}`
+	// NOTE: Nomad service-catalog names must be RFC 1123 (no underscores)
+	const url = nomad_url + `/service/${String(request.topic).replace(/_/g, '-')}`
   console.log('getting service url:', url)
 
 	var service_url = ''
@@ -62,13 +62,30 @@ async function sleep(ms) {
   });
 }
 
+// Rewrites the job name and its matching `service { name = ... }` stanza(s) to TOPIC,
+// so each TOPIC gets its own Nomad job/allocation instead of sharing one container.
+export function applyTopicToNomadHcl(hcl, topic) {
+  const jobNameMatch = hcl.match(/^job\s+"([^"]+)"/m)
+  if (!jobNameMatch) return hcl
+  const baseName = jobNameMatch[1]
+  const nomadName = String(topic).replace(/_/g, '-')
+  if (nomadName === baseName) return hcl
+
+  let result = hcl.replace(/^(job\s+")([^"]+)(")/m, `$1${nomadName}$3`)
+  result = result.replace(/(service\s*\{[^}]*?name\s*=\s*")([^"]+)(")/gs, (match, prefix, name, suffix) => {
+    return name === baseName ? `${prefix}${nomadName}${suffix}` : match
+  })
+  return result
+}
+
 export async function createService(md_url, service, options = {}) {
   const url = md_url + `/api/nomad/service/${service}`
   console.log('creating service:', url)
   try {
       const requestOptions = { headers: { 'mail': DEFAULT_USER } }
       if(options.nomadHclPath) {
-        const nomadHcl = await fs.readFile(options.nomadHclPath, 'utf-8')
+        let nomadHcl = await fs.readFile(options.nomadHclPath, 'utf-8')
+        nomadHcl = applyTopicToNomadHcl(nomadHcl, service)
         requestOptions.json = { nomad_hcl: nomadHcl }
       }
       var response = await got.post(url, requestOptions).json()  
@@ -418,12 +435,11 @@ export async function getFileBuffer(filepath, asBase64 = false) {
   return buffer;
 }
 
-  export function printInfo(name, nomad_url, nats_url, md_url) {
+  export function printInfo(name, nomad_url, md_url) {
 
     console.log('MessyDesk consumer: ', name)
     console.log('-------------------')
     console.log('nomad:', nomad_url)
-    console.log('nats:', nats_url)
     console.log('messydesk:', md_url)
     console.log('___________________')
   }
@@ -526,30 +542,16 @@ export async function getAdapterServiceDescriptor(topic, adapterName = null, des
   return null;
 }
 
-export async function resolveNomadHclPath(topic, options = {}) {
+export async function resolveNomadHclPath(options = {}) {
   const descriptorPath = options.descriptorPath || null;
-  const adapterName = options.adapterName || null;
-
-  const candidates = [];
   const explicitDescriptorPath = descriptorPath
     ? (path.isAbsolute(descriptorPath) ? descriptorPath : path.resolve(process.cwd(), descriptorPath))
     : null;
 
   if(explicitDescriptorPath) {
-    candidates.push(path.join(path.dirname(explicitDescriptorPath), 'nomad.hcl'));
-  }
-
-  candidates.push(path.join(process.cwd(), '.descriptors', topic, 'nomad.hcl'));
-  candidates.push(path.join(process.cwd(), 'descriptors', topic, 'nomad.hcl'));
-
-  if(adapterName) {
-    candidates.push(path.join(process.cwd(), '.descriptors', adapterName, 'nomad.hcl'));
-    candidates.push(path.join(process.cwd(), 'descriptors', adapterName, 'nomad.hcl'));
-  }
-
-  for(const candidate of candidates) {
-    if(await pathExists(candidate)) {
-      return candidate;
+    const siblingNomadHcl = path.join(path.dirname(explicitDescriptorPath), 'nomad.hcl');
+    if(await pathExists(siblingNomadHcl)) {
+      return siblingNomadHcl;
     }
   }
 
