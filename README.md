@@ -3,45 +3,55 @@ Service adapters for MessyDesk
 
 ## What are this?
 
-Service adapter is application that **consumes messages from the certain queue (topic)** of MessyDesk. This is the layer that knows the details of how to call certain service that will eventually do all the work. In other words, consumers translates request from MessyDesk to API in question. 
+Service adapter is application that **consumes messages from the certain queue (topic)** of MessyDesk and connects them to actual service. In other words, consumers translates request from MessyDesk to service API in question. 
 
 Every service has its own instance of service adapter. So if you have 6 services, then you would have 6 service adapters running also.
 
 
-### example
+### example (md-tesseract with Nomad)
 
-The service "md-imaginary" is defined in /services/md-imaginary/service.json in MessyDesk's root directory. The local_url is the url that is used for when running whole system locally and without nomad.
+We want users to be able to run Tesseract for their images. Tesseract wrapper image must be built first:
 
-    TOPIC=md-imaginary node src/index.mjs
+    git clone https://github.com/OSC-JYU/MD-tesseract
+    cd MD-tesseract
+    sudo make build
 
-This now listens message stream called "md-imaginary" and sends processing request to http://localhost:9000 as defined in service.json (local_url)  
-NOTE: You must manually start the actual service. In this case like this:
-
-    docker pull nextcloud/aio-imaginary
-    docker run -d --name md-imaginary -p 9000:9000 nextcloud/aio-imaginary 
+MD-tesseract repository has nomad.hcl that tells how it can be run in Nomad. We provide `NOMAD_HCL_PATH` for adapter:
 
 
-If you want to run this with nomad, then add NOMAD environment variable. This will start the service with nomad (IF service HAS nomad.hcl). Obviously you must have also nomad installed.
+    cd MD-consumers
+    TOPIC=md-tesseract NOMAD_HCL_PATH=/absolute/path/to/MD-tesseract/nomad.hcl node src/index.mjs
 
-    TOPIC=md-imaginary NOMAD=1 node src/index.mjs
+This would start service container (md-tesseract) witn nomad and adapter code will register service to MessyDesk backend -> User can OCR images with Tesseract.
+
+
+### External services
+
+If API is external - like commercial inference APIs for example - then you need a service.json that tells system what adapter to use and where service is located.
+
+TODO: documentation
 
 ## Optional environment variables
 
 - `SERVICE_JSON_PATH`: Explicit path to service descriptor JSON (for example `../MessyDesk/services/md-azure-ai/service.json`).
-    - If set, consumer will use this descriptor path as descriptor source fallback when `/config` is not available.
-    - This is useful when descriptor file is outside default `descriptors/` and `src/adapters/*.service.json` locations.
+    - If set, this descriptor is used for registration metadata and overrides runtime `/config` metadata.
+    - If not set, descriptor must be available from service `/config`.
+    - Relative paths are resolved against current working directory, project root, and `/src`.
+- `NOMAD_HCL_PATH`: Explicit path to Nomad job specification.
+    - If set, consumer uses Nomad service discovery and tries to start the service via MessyDesk API.
 - `HELP_URL`: Explicit URL for service help ingestion source.
     - Useful for external API services that do not provide `/help` endpoint.
     - If not set, consumer falls back to descriptor `help_url`, then descriptor `source_url`.
+- `STRICT_TOPIC_ID`: Controls startup validation that `TOPIC` must match descriptor `id`.
+    - Default is strict mode (`true`) and consumer exits fast on mismatch.
+    - Set `STRICT_TOPIC_ID=false` only for temporary debugging.
+- `REQUIRE_DEV_URL_UP`: When `DEV_URL` is set and `NOMAD_HCL_PATH` is not set, require service to be reachable before adapter startup.
+    - Default is enabled (`true`).
+    - Reachability check accepts runtime `/config` or healthy `/health`.
+    - Set `REQUIRE_DEV_URL_UP=false` only for temporary debugging.
+- `DEV_URL_WAIT_MAX_MS`: Max wait time for DEV_URL preflight (default `10000`).
+- `DEV_URL_WAIT_STEP_MS`: Poll interval for DEV_URL preflight (default `1000`).
+- `DEV_URL_PROBE_TIMEOUT_MS`: Request timeout per preflight probe request (default `3000`).
 
-Example:
-
-        TOPIC=md-azure-ai SERVICE_JSON_PATH=../MessyDesk/services/md-azure-ai/service.json HELP_URL=https://learn.microsoft.com/en-us/azure/ai-services/openai/reference node src/index.mjs
-
-# Container
-
-This will start thumbnailer adapter (TOPIC=md-thumbnailer) in local installation (network=host). It will also start thumbnailer service in nomad cluster (NOMAD=true). 
-
-podman run --rm -it -e TOPIC=md-thumbnailer  -e NOMAD=true --network=host osc.repo.kopla.jyu.fi/messydesk/md-consumer:26.01.12  "node src/index.mjs"
 
 

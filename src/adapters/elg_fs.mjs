@@ -112,11 +112,12 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse, startedAt = null) {
     const parentCurrentFile = Number(msg?.current_file || 0)
     const hasParentBatchCounters = parentTotalFiles > 0 && parentCurrentFile > 0
 
+
     for (let i = 0; i < files.length; i += 1) {
-        const canContinue = await shouldContinueBatch(msg)
-        if (!canContinue) {
-            break
-        }
+        // const canContinue = await shouldContinueBatch(msg)
+        // if (!canContinue) {
+        //     break
+        // }
 
         const file = files[i]
         const callbackTmpName = path.basename(String(file.fileRef || file.label || ''))
@@ -160,7 +161,7 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse, startedAt = null) {
         if(elapsed !== null) {
             callbackMessage.response.time = elapsed
         }
-
+console.log(callbackMessage.role)
         try {
             await got.post(urlTmp, {
                 json: {
@@ -240,7 +241,6 @@ export async function process_msg(service_url, message) {
             headers: formData.getHeaders(),
         }).json();
         
-        console.log(serviceResult.response.files)
 
         const outputInfo = await sendTmpFilesToMessyDesk(msg, serviceResult, startedAt)
         console.log('tmp outputs', outputInfo)

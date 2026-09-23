@@ -6,7 +6,8 @@ COPY package.json /src/package.json
 COPY package-lock.json /src/package-lock.json
 
 COPY --chown=node:node . /src
-RUN mkdir -p /src/data && chown -R node:node /src/data
+COPY --chown=node:node descriptors /src/descriptors
+RUN mkdir -p /src/data /src/descriptors /src/.descriptors && chown -R node:node /src/data /src/descriptors /src/.descriptors
 WORKDIR /src
 RUN npm ci
 RUN npm cache clean --force

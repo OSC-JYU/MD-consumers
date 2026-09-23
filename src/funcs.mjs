@@ -23,16 +23,16 @@ export async function createDataDir() {
 	}
 }
 
-export async function getServiceURL(nomad_url, request, service, nomad, wait) {
+export async function getServiceURL(nomad_url, request, service, nomadMode, wait) {
   console.log('request:', request)
-  if(!request.nomad) {
+  if(!nomadMode) {
     if(service.dev_url) return service.dev_url
     if(service.local_url) return service.local_url
     return 'http://dummy.service.com'
     //if(service.source_url) return service.source_url
   }
-	// NOTE: this gives only the first address
-	const url = nomad_url + `/service/${request.topic}`
+	// NOTE: this gives only the first address; Nomad service-catalog names must be RFC 1123 (no underscores)
+	const url = nomad_url + `/service/${String(request.topic).replace(/_/g, '-')}`
   console.log('getting service url:', url)
 
 	var service_url = ''
@@ -418,12 +418,11 @@ export async function getFileBuffer(filepath, asBase64 = false) {
   return buffer;
 }
 
-  export function printInfo(name, nomad_url, nats_url, md_url) {
+  export function printInfo(name, nomad_url, md_url) {
 
     console.log('MessyDesk consumer: ', name)
     console.log('-------------------')
     console.log('nomad:', nomad_url)
-    console.log('nats:', nats_url)
     console.log('messydesk:', md_url)
     console.log('___________________')
   }
@@ -526,30 +525,16 @@ export async function getAdapterServiceDescriptor(topic, adapterName = null, des
   return null;
 }
 
-export async function resolveNomadHclPath(topic, options = {}) {
+export async function resolveNomadHclPath(options = {}) {
   const descriptorPath = options.descriptorPath || null;
-  const adapterName = options.adapterName || null;
-
-  const candidates = [];
   const explicitDescriptorPath = descriptorPath
     ? (path.isAbsolute(descriptorPath) ? descriptorPath : path.resolve(process.cwd(), descriptorPath))
     : null;
 
   if(explicitDescriptorPath) {
-    candidates.push(path.join(path.dirname(explicitDescriptorPath), 'nomad.hcl'));
-  }
-
-  candidates.push(path.join(process.cwd(), '.descriptors', topic, 'nomad.hcl'));
-  candidates.push(path.join(process.cwd(), 'descriptors', topic, 'nomad.hcl'));
-
-  if(adapterName) {
-    candidates.push(path.join(process.cwd(), '.descriptors', adapterName, 'nomad.hcl'));
-    candidates.push(path.join(process.cwd(), 'descriptors', adapterName, 'nomad.hcl'));
-  }
-
-  for(const candidate of candidates) {
-    if(await pathExists(candidate)) {
-      return candidate;
+    const siblingNomadHcl = path.join(path.dirname(explicitDescriptorPath), 'nomad.hcl');
+    if(await pathExists(siblingNomadHcl)) {
+      return siblingNomadHcl;
     }
   }
 
