@@ -71,7 +71,7 @@ MessyDesk API ──enqueue──▶ SQLite queue ──HTTP claim──▶ Cons
          ▼                              ▼
   ┌──────────────┐            ┌──────────────────┐
   │  MessyDesk   │            │ External Service │
-  │  Core API    │            │ (imaginary, AI,  │
+  │  Core API    │            │ (md-sharp, AI,   │
   │ :8200        │            │  Solr, etc.)     │
   └──────────────┘            └──────────────────┘
 ```

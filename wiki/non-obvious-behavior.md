@@ -50,29 +50,7 @@ Unlike all other adapters that download files via HTTP (`getFile()`), the Solr a
 
 **Verified from:** `src/adapters/solr.mjs` `resolveMdRelativePath()`.
 
-## 7. OSD_rotate Is a Two-Service Composite
-
-The `imaginary` adapter's `OSD_rotate` task:
-1. Downloads an OSD JSON file (orientation detection result)
-2. Reads the orientation angle from it
-3. Redirects to the actual source image
-4. Applies rotation
-
-This means `OSD_rotate` operates on a **derived file** (the JSON), not the image itself. The `supported_types: ["osd.json"]` in the descriptor enforces this.
-
-**Verified from:** `src/adapters/imaginary.mjs` OSD_rotate block.
-
-## 8. Thumbnail Jobs Produce Two Outputs
-
-When `imaginary` detects a thumbnail job (via `isThumbnailJob()`), it:
-1. Produces the requested resize
-2. Produces an additional 200px-wide thumbnail with `thumb_name: 'thumbnail.jpg'`
-
-Both are sent to MessyDesk as separate file uploads.
-
-**Verified from:** `src/adapters/imaginary.mjs` thumbnail block.
-
-## 9. Batch Cancellation Only in elg_fs
+## 7. Batch Cancellation Only in elg_fs
 
 Only the `elg_fs` adapter checks batch status (`GET /api/batches/:rid`) before processing each file. Other adapters process all messages regardless of batch state. This means a cancelled batch will still have in-flight messages processed by non-fs adapters.
 

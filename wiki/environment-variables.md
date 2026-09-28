@@ -53,7 +53,7 @@
 | `GOOGLE_API_KEY` | `gemini-ai` | Google Gemini API key |
 | `AZURE_OPENAI_API_KEY` | `azure-ai` | Azure OpenAI API key |
 | `OLLAMA_MODEL` | `ollama` | Default Ollama model (fallback if not in message) |
-| `MD_PATH` | `solr`, `sharp-thumbnailer` | MessyDesk data root path (enables direct file access; falls back to HTTP if unset) |
+| `MD_PATH` | `solr` | MessyDesk data root path (enables direct file access; falls back to HTTP if unset) |
 | `CONTAINER` | `solr` | Container mode flag for path resolution |
 | `STORAGE_MODE` / `FILE_STORAGE_MODE` | `solr`, `poppler` | `disk` or `http` — controls file access strategy |
 | `SOLR_CORE` | `solr` | (commented out in source, hardcoded to `messydesk`) |

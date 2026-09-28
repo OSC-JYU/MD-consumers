@@ -1,7 +1,7 @@
 {
   "name": "mdc-imaginary",
   "version": "1.0.0",
-  "description": "Imaginary consumer for MessyDesk",
+  "description": "Adapter consumers for MessyDesk (elg/elg_fs, AI, Solr, etc.)",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

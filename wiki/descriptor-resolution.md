@@ -23,6 +23,25 @@ Each source returns a `{ descriptor, source }` tuple where `source` identifies p
 
 **Verified from:** `src/funcs.mjs` `resolveDescriptorSourceChain()`
 
+## Adapter Descriptor Enrichment
+
+After a descriptor is resolved (both at initial registration and on every 30s heartbeat), `src/index.mjs` gives the
+loaded adapter module a chance to modify it before it's sent to MessyDesk, by calling an optional adapter export:
+
+```js
+export async function enrichDescriptor(descriptor, serviceUrl) {
+  // return a modified descriptor (e.g. inject live values fetched from the service), or the
+  // original descriptor unchanged
+}
+```
+
+This exists for services whose valid parameter values can only be known by asking the live service (e.g. LibreTranslate's
+installed language pairs from `GET /languages`) rather than being hardcoded in `service.json`. Adapters without this
+export are unaffected. Failures inside `enrichDescriptor` are caught and logged as a warning — the previously resolved
+descriptor is used unchanged, so a transient failure never blocks registration/heartbeat.
+
+**Verified from:** `src/index.mjs` `enrichDescriptorWithAdapter()`, `src/adapters/libretranslate.mjs` `enrichDescriptor()`.
+
 ## Runtime Policy in Consumer Startup
 
 `src/index.mjs` applies a stricter policy than the generic helper chain:
