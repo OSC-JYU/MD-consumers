@@ -46,6 +46,9 @@ const DEV_URL_WAIT_STEP_MS = Number(process.env.DEV_URL_WAIT_STEP_MS || 1000);
 const DEV_URL_PROBE_TIMEOUT_MS = Number(process.env.DEV_URL_PROBE_TIMEOUT_MS || 3000);
 const DESCRIPTOR_WAIT_MAX_MS = Number(process.env.DESCRIPTOR_WAIT_MAX_MS || 15000);
 const DESCRIPTOR_WAIT_STEP_MS = Number(process.env.DESCRIPTOR_WAIT_STEP_MS || 1000);
+// Consecutive failed heartbeats (each 30s) before the adapter is deregistered and the
+// service is hidden from users; it reappears automatically once a heartbeat succeeds again.
+const HEARTBEAT_FAILURE_THRESHOLD = Number(process.env.HEARTBEAT_FAILURE_THRESHOLD || 2);
 
 function resolveDescriptorPathForRuntime(inputPath) {
   if (!inputPath) return null;
@@ -90,6 +93,9 @@ if (SERVICE_JSON_PATH && SERVICE_JSON_PATH !== EFFECTIVE_SERVICE_JSON_PATH) {
 if (!TOPIC) {
   throw new Error('TOPIC environment variable is required');
 }
+
+// Helps distinguish consumer instances when several are running in separate terminals.
+process.stdout.write(`\x1b]0;${TOPIC}\x07`);
 
 // Each consumer owns exactly one Nomad job/service instance (never a shared pool), so its
 // Nomad identity must be unique even when several consumers share one TOPIC for queue claiming.
@@ -216,6 +222,20 @@ async function resolveRequiredDescriptor({
   );
 }
 
+// Adapters may optionally export `enrichDescriptor(descriptor, serviceUrl)` to inject
+// service-specific data (e.g. live language lists) into the descriptor before it's
+// registered/heartbeat-ed. Failures are non-fatal: the unmodified descriptor is used instead.
+async function enrichDescriptorWithAdapter(descriptor, serviceUrl) {
+  if (!adapterModule || typeof adapterModule.enrichDescriptor !== 'function') return descriptor;
+  try {
+    const enriched = await adapterModule.enrichDescriptor(descriptor, serviceUrl);
+    return enriched || descriptor;
+  } catch (error) {
+    console.log(`WARN: adapter enrichDescriptor failed for ${TOPIC}:`, error.message);
+    return descriptor;
+  }
+}
+
 async function triggerServiceHelpIngest(serviceId, descriptor = null) {
   const ingestUrl = `${MD_URL}/api/services/${serviceId}/help/ingest`;
   const configuredHelpUrl = HELP_URL || descriptor?.help_url || null;
@@ -297,6 +317,9 @@ let stopped = false;
 let shutdownInProgress = false;
 let serviceStartedByConsumer = false;
 let serviceRegisteredInBackend = false;
+let consecutiveHeartbeatFailures = 0;
+let adapterActiveInBackend = false;
+let adapterModule = null;
 
 const batchRunner = createBatchRunner();
 
@@ -309,7 +332,7 @@ async function shutdown(signal = 'SIGINT') {
   const options = { headers: { mail: DEFAULT_USER } };
 
   try {
-    if (adapter_id) {
+    if (adapter_id && adapterActiveInBackend) {
       await got.delete(`${MD_URL}/api/services/${TOPIC}/adapter/${adapter_id}`, options);
       console.log('adapter deregistered:', adapter_id);
     }
@@ -424,6 +447,9 @@ async function main() {
     throw new Error('No adapter specified in environment variable or service descriptor');
   }
 
+  adapterModule = await import(`./adapters/${adapter_name}.mjs`);
+  service_json = await enrichDescriptorWithAdapter(service_json, service_url);
+
   await registerServiceDescriptorWithRetry({
     mdUrl: MD_URL,
     descriptor: service_json,
@@ -444,9 +470,10 @@ async function main() {
   console.log('registering consumer:', registerUrl);
   const options = { headers: { mail: DEFAULT_USER } };
   await got.post(registerUrl, { ...options, json: { control_url: controlUrl } }).json();
+  adapterActiveInBackend = true;
 
   // --- Load adapter ---
-  const process_msg = (await import(`./adapters/${adapter_name}.mjs`)).process_msg;
+  const process_msg = adapterModule.process_msg;
 
   // --- Heartbeat interval (re-registration every 30s) ---
   interval = setInterval(async () => {
@@ -461,6 +488,7 @@ async function main() {
         waitForRuntime: false,
       });
       service_json = withTopicAsId(resolvedHeartbeat.descriptor);
+      service_json = await enrichDescriptorWithAdapter(service_json, service_url);
       const heartbeatSource = resolvedHeartbeat.source;
       await registerServiceDescriptorWithRetry({
         mdUrl: MD_URL,
@@ -471,8 +499,24 @@ async function main() {
         initialDelayMs: REGISTRATION_INITIAL_DELAY_MS,
       });
       await got.post(registerUrl, { ...options, json: { control_url: controlUrl } }).json();
+      if (!adapterActiveInBackend) {
+        console.log(`heartbeat recovered: ${TOPIC} adapter re-registered, service visible again`);
+      }
+      adapterActiveInBackend = true;
+      consecutiveHeartbeatFailures = 0;
     } catch (e) {
-      console.log('heartbeat error:', e.message);
+      consecutiveHeartbeatFailures += 1;
+      console.log(`heartbeat error (failure ${consecutiveHeartbeatFailures}/${HEARTBEAT_FAILURE_THRESHOLD}):`, e.message);
+
+      if (adapterActiveInBackend && consecutiveHeartbeatFailures >= HEARTBEAT_FAILURE_THRESHOLD) {
+        try {
+          await got.delete(`${MD_URL}/api/services/${TOPIC}/adapter/${adapter_id}`, options);
+          adapterActiveInBackend = false;
+          console.log(`${TOPIC}: adapter deregistered after ${consecutiveHeartbeatFailures} failed heartbeats, hiding service from users until it recovers`);
+        } catch (deregisterError) {
+          console.log('failed to deregister adapter after heartbeat failures:', deregisterError.message);
+        }
+      }
     }
   }, 30000);
 

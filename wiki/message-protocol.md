@@ -2,7 +2,7 @@
 
 ## Queue Topic Pattern
 
-Jobs are enqueued with a topic matching the service ID (e.g., `md-imaginary`). The consumer claims jobs from its assigned topic via HTTP.
+Jobs are enqueued with a topic matching the service ID (e.g., `md-sharp`). The consumer claims jobs from its assigned topic via HTTP.
 
 **Verified from:** `src/index.mjs`, `src/queueClient.mjs`
 

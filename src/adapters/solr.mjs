@@ -107,6 +107,48 @@ function resolveMdRelativePath(relativePath) {
 const MD_ROOT = resolveMdRoot(MD_PATH_ENV, ['1', 'true', 'yes', 'on'].includes(CONTAINER_MODE))
 
 
+function escapeSolrValue(value) {
+    return String(value == null ? '' : value).replace(/"/g, '\\"')
+}
+
+// Full-doc realtime-get + merge + repost instead of an atomic `{"set": [...]}` partial update:
+// this Solr version rejects atomic `set` on multiValued fields with "multiple values encountered
+// for non multiValued field set" even when the schema correctly reports multiValued:true.
+async function updateTagsForNode(service_url, node_rid, tagFields) {
+    const escapedNode = escapeSolrValue(node_rid)
+    const selectUrl = `${service_url}/solr/messydesk/select`
+    const getUrl = `${service_url}/solr/messydesk/get`
+    const updateUrl = `${service_url}/solr/messydesk/update?commit=true`
+
+    const selectResponse = await got.get(selectUrl, {
+        searchParams: {q: `node:"${escapedNode}"`, fl: 'id', rows: 1000, wt: 'json'}
+    }).json()
+    const docIds = (selectResponse?.response?.docs || []).map((doc) => doc.id).filter(Boolean)
+    if(!docIds.length) return {updated: 0}
+
+    const updates = []
+    for(const id of docIds) {
+        const getResponse = await got.get(getUrl, {searchParams: {id, wt: 'json'}}).json()
+        const doc = getResponse?.doc
+        if(!doc) continue
+        const merged = {}
+        for(const key of Object.keys(doc)) {
+            if(key.startsWith('_')) continue
+            merged[key] = doc[key]
+        }
+        merged.tag_label = tagFields.tag_label || []
+        merged.tag_rid = tagFields.tag_rid || []
+        merged.tag_created_by = tagFields.tag_created_by || []
+        merged.tag_confidence = tagFields.tag_confidence || []
+        updates.push(merged)
+    }
+    if(!updates.length) return {updated: 0}
+
+    const response = await got.post(updateUrl, {json: updates}).json()
+    return {updated: updates.length, response}
+}
+
+
 export async function process_msg(service_url, message) {
     
     let msg
@@ -168,6 +210,18 @@ export async function process_msg(service_url, message) {
             index_data = {
                 delete: { query }
             }
+        } else if(msg.task.id == 'update_tags') {
+            const fileRid = String(msg?.file?.['@rid'] || '')
+            const result = await updateTagsForNode(service_url, fileRid, msg?.tag_fields || {})
+            console.log('update_tags result:', result)
+
+            await got.post(`${MD_URL}/api/nomad/process/files/done`, {
+                json: withResponseTime({...msg, response: {...(msg?.response || {}), ...result}}, startedAt),
+                headers: {
+                    'mail': DEFAULT_USER,
+                },
+            })
+            return result
         } else {
 
             console.log('invalid task')

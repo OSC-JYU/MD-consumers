@@ -50,29 +50,7 @@ Unlike all other adapters that download files via HTTP (`getFile()`), the Solr a
 
 **Verified from:** `src/adapters/solr.mjs` `resolveMdRelativePath()`.
 
-## 7. OSD_rotate Is a Two-Service Composite
-
-The `imaginary` adapter's `OSD_rotate` task:
-1. Downloads an OSD JSON file (orientation detection result)
-2. Reads the orientation angle from it
-3. Redirects to the actual source image
-4. Applies rotation
-
-This means `OSD_rotate` operates on a **derived file** (the JSON), not the image itself. The `supported_types: ["osd.json"]` in the descriptor enforces this.
-
-**Verified from:** `src/adapters/imaginary.mjs` OSD_rotate block.
-
-## 8. Thumbnail Jobs Produce Two Outputs
-
-When `imaginary` detects a thumbnail job (via `isThumbnailJob()`), it:
-1. Produces the requested resize
-2. Produces an additional 200px-wide thumbnail with `thumb_name: 'thumbnail.jpg'`
-
-Both are sent to MessyDesk as separate file uploads.
-
-**Verified from:** `src/adapters/imaginary.mjs` thumbnail block.
-
-## 9. Batch Cancellation Only in elg_fs
+## 7. Batch Cancellation Only in elg_fs
 
 Only the `elg_fs` adapter checks batch status (`GET /api/batches/:rid`) before processing each file. Other adapters process all messages regardless of batch state. This means a cancelled batch will still have in-flight messages processed by non-fs adapters.
 
@@ -121,3 +99,13 @@ var url = `${service_url}/solr/messydesk/update?commit=true`
 The `SOLR_CORE` env var exists as a comment but is not wired up.
 
 **Verified from:** `src/adapters/solr.mjs`.
+
+## 15. Downstream Services Own Their Own Upload/Output Cleanup — Consumers Don't
+
+`elg`/`elg_fs` adapters never delete files on the *service* side — a service's `uploads/`/`data/` (or equivalent) directories are its own responsibility, not something MD-consumers or MessyDesk core clean up remotely. Two failure modes this causes if a service doesn't handle it:
+- Raw upload files (message JSON + content) survive if a request errors before the service's own unlink runs, or the process crashes mid-request.
+- Output files served lazily (e.g. deleted only when the adapter's `GET /files/{dir}/{file}` request downloads them) survive forever if a job fails downstream (batch cancelled, MessyDesk never fetches the result, etc.) since nothing ever triggers that GET.
+
+**Convention (introduced in `MD-tesseract`, `lib/cleanup.mjs`):** each standalone service should run its own **clean sweep** — a startup sweep (once, before the HTTP server starts accepting requests) plus a timed sweep (`setInterval`, e.g. hourly) that deletes anything in its upload/output directories older than a max-age threshold (mtime-based, e.g. 24h default). This is service-local file hygiene; it has no protocol-level relationship to MD-consumers or the queue.
+
+**Verified from:** `MD-tesseract/lib/cleanup.mjs`, `MD-tesseract/index.mjs`.

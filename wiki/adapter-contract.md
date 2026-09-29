@@ -67,7 +67,7 @@ Or use the helper: `withResponseTime(msg, startedAt)` from `funcs.mjs`.
 
 | Pattern | Used by | Description |
 |---|---|---|
-| File upload via multipart | `imaginary`, `elg`, `paddleocr` | Binary file streamed back |
+| File upload via multipart | `elg`, `paddleocr` | Binary file streamed back |
 | Text file via content string | `gemini-ai`, `azure-ai`, `ollama`, `test` | Content sent as string, not file stream |
 | JSON metadata to `/metadata` endpoint | `gemini-ai`, `azure-ai`, `ollama` | AI response metadata (tokens, model) |
 | Tmp-file reference (disk mode) | `elg_fs` | File paths sent as JSON, no upload |

@@ -4,8 +4,6 @@
 
 | Adapter | File | Service type | Input types | Output |
 |---|---|---|---|---|
-| `sharp-thumbnailer` | `sharp-thumbnailer.mjs` | Thumbnail generation | image | JPEG thumbnails |
-| `imaginary` | `imaginary.mjs` | Image manipulation | image | image file |
 | `gemini-ai` | `gemini-ai.mjs` | Google Gemini LLM | image, text | text + metadata JSON |
 | `azure-ai` | `azure-ai.mjs` | Azure OpenAI | image, text | text + metadata JSON |
 | `ollama` | `ollama.mjs` | Self-hosted LLM (Ollama) | image, text | text/JSON + metadata |
@@ -16,33 +14,11 @@
 | `poppler` | `poppler.mjs` | PDF processing | PDF | images/files |
 | `dspace7` | `dspace7.mjs` | DSpace 7 repository | text | text export |
 | `annif` | `annif.mjs` | Annif subject indexing | text | JSON suggestions |
+| `libretranslate` | `libretranslate.mjs` | LibreTranslate machine translation/detection | text, html | translated text/html or JSON |
 | `json-tagger` | `json-tagger.mjs` | Entity tagging | JSON (NER output) | entities linked via API |
 | `test` | `test.mjs` | Test/debug | any | delayed text/JSON |
 
 ## Adapter Details
-
-### sharp-thumbnailer
-
-- In-process thumbnail generation using [sharp](https://sharp.pixelplumbing.com/) (libvips)
-- No external service needed — `service_url` parameter is accepted but ignored
-- **Direct file access:** reads from `path.join(MD_PATH, msg.file.path)` when `MD_PATH` is set; falls back to HTTP download via `getFile()`
-- **Dual output:** generates 800px preview (from `msg.task.params.width`) then 200px `thumbnail.jpg`
-- EXIF auto-orientation via `sharp().rotate()`
-- SVG rasterization at 150 DPI density
-- Large TIFF support: `limitInputPixels: false`, `sequentialRead: true`
-- Cleans up temp files after successful upload
-- Supported formats: PNG, JPEG, TIFF, SVG, WebP (not PDF — use `poppler` for that)
-
-**Verified from:** `src/adapters/sharp-thumbnailer.mjs`
-
-### imaginary
-
-- Proxies to [Imaginary](https://github.com/h2non/imaginary) (image processing server)
-- Downloads file from MD, sends as multipart to `service_url/<task_id>?<params>`
-- Special handling: `OSD_rotate` task reads orientation from a JSON file, then delegates to `rotate`
-- Used for image manipulation tasks (resize, rotate, crop, etc.) — no longer used for thumbnailing
-
-**Verified from:** `src/adapters/imaginary.mjs`
 
 ### gemini-ai
 
@@ -136,6 +112,17 @@
 - Uses `cld` library for language detection
 
 **Verified from:** `src/adapters/dspace7.mjs`
+
+### libretranslate
+
+- Calls a self-hosted [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) instance's HTTP API directly (`POST /translate`, `POST /detect`) — bespoke adapter, not the `elg` protocol
+- Tasks: `translate` (plain text, `format: "text"`), `translate_html` (`format: "html"`, preserves tags), `detect_language` (`POST /detect`, returns JSON with language + confidence)
+- `source` defaults to `auto` (LibreTranslate's own language auto-detection); no API key needed for self-hosted instances
+- Enforces a hard input-size cap (default 2MB, `LIBRETRANSLATE_MAX_INPUT_SIZE` env var) since LibreTranslate itself has none
+- Descriptor lives in the separate `MD-LibreTranslate` repo (no Python service to serve `/config`), loaded via `SERVICE_JSON_PATH`
+- Exports `enrichDescriptor()` (see [descriptor-resolution.md](descriptor-resolution.md#adapter-descriptor-enrichment)): fetches `GET /languages` on registration/heartbeat and replaces `service.json`'s static language list with the instance's actual installed language pairs
+
+**Verified from:** `src/adapters/libretranslate.mjs`
 
 ### json-tagger
 
