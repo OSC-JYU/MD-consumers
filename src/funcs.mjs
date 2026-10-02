@@ -7,6 +7,7 @@ import FormData from 'form-data';
 import stream from 'node:stream';
 import { promises as fs } from 'fs';
 import { ensureDir } from 'fs-extra'
+import { crc32 as zlibCrc32 } from 'zlib'
 
 const KEEP_FILENAME = 1
 const DEFAULT_USER = 'local.user@localhost'
@@ -194,6 +195,51 @@ export function tmpDirFor(msg) {
   const dir = path.join(root, 'data', parts[at + 1], 'tmp')
   mkdirSync(dir, { recursive: true })
   return dir
+}
+
+/**
+ * Writes a ZIP (stored, no compression) of files on disk: [{ name, path }]. For sets whose files
+ * the consumer can read itself, so no set ZIP job (md-zip_fs) is needed. Not ZIP64: under 4 GB.
+ */
+export async function writeZip(entries, outPath) {
+  const out = createWriteStream(outPath)
+  const write = (buf) => new Promise((resolve, reject) => out.write(buf, (err) => (err ? reject(err) : resolve())))
+  const central = []
+  let offset = 0
+  const used = new Set()
+  for (const entry of entries) {
+    let name = String(entry.name || path.basename(entry.path)).replace(/\\/g, '/').replace(/^\/+/, '')
+    for (let i = 2; used.has(name); i += 1) name = name.replace(/(\.[^./]*)?$/, `_${i}$1`)
+    used.add(name)
+    const nameBuf = Buffer.from(name, 'utf8')
+    let crc = 0
+    let size = 0
+    for await (const chunk of createReadStream(entry.path)) { crc = zlibCrc32(chunk, crc); size += chunk.length }
+    if (offset + size > 0xfffffff0) throw new Error('Set is too large for a ZIP without ZIP64')
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6)
+    local.writeUInt16LE(0, 8); local.writeUInt32LE(0, 10); local.writeUInt32LE(crc >>> 0, 14)
+    local.writeUInt32LE(size, 18); local.writeUInt32LE(size, 22); local.writeUInt16LE(nameBuf.length, 26); local.writeUInt16LE(0, 28)
+    await write(local); await write(nameBuf)
+    for await (const chunk of createReadStream(entry.path)) await write(chunk)
+    central.push({ nameBuf, crc, size, offset })
+    offset += 30 + nameBuf.length + size
+  }
+  const start = offset
+  for (const c of central) {
+    const head = Buffer.alloc(46)
+    head.writeUInt32LE(0x02014b50, 0); head.writeUInt16LE(20, 4); head.writeUInt16LE(20, 6); head.writeUInt16LE(0x0800, 8)
+    head.writeUInt16LE(0, 10); head.writeUInt32LE(0, 12); head.writeUInt32LE(c.crc >>> 0, 16); head.writeUInt32LE(c.size, 20)
+    head.writeUInt32LE(c.size, 24); head.writeUInt16LE(c.nameBuf.length, 28); head.writeUInt32LE(c.offset, 42)
+    await write(head); await write(c.nameBuf)
+    offset += 46 + c.nameBuf.length
+  }
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(central.length, 8); end.writeUInt16LE(central.length, 10)
+  end.writeUInt32LE(offset - start, 12); end.writeUInt32LE(start, 16)
+  await write(end)
+  await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())))
+  return outPath
 }
 
 export async function getFile(md_url, file_rid, user, source) {

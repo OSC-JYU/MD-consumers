@@ -15,6 +15,7 @@
 import FormData from 'form-data';
 import fs from 'fs';
 import got from 'got';
+import os from 'os';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -28,6 +29,7 @@ import {
     mdRoot,
     resolveMdPath,
     tmpDirFor,
+    writeZip,
     sendDone,
     sendError,
 } from '../funcs.mjs';
@@ -198,14 +200,29 @@ async function inputPath(msg, ref) {
     return { path: await getFile(MD_URL, ref['@rid'], msg.userId), temporary: true }
 }
 
+/**
+ * The input set as a ZIP. A whole-set job lists its files, so with MD_PATH the consumer zips them
+ * from disk; otherwise the backend's set ZIP job builds it (needs md-zip_fs).
+ */
+async function setZip(msg) {
+    const entries = (msg.files || []).map((f) => ({ name: f.label, path: mdRoot() ? resolveMdPath(f.path) : null }))
+    if (entries.length && entries.every((e) => e.path)) {
+        const out = path.join(os.tmpdir(), `md-set-${uuidv4()}.zip`)
+        console.log(`zipping ${entries.length} set files from disk`)
+        return writeZip(entries, out)
+    }
+    console.log(`waiting for the set ZIP job of ${msg.input_set} (md-zip_fs)`)
+    return getFilesZip(MD_URL, msg.input_set, msg.userId)
+}
+
 async function buildForm(msg, storage) {
     const form = new FormData()
     const cleanup = []
     if (storage === 'http') {
         if (msg.input_set) {
-            const zip = await getFilesZip(MD_URL, msg.input_set, msg.userId)
+            const zip = await setZip(msg)
             cleanup.push(zip)
-            form.append('content', fs.createReadStream(zip))
+            form.append('content', fs.createReadStream(zip), { filename: 'set.zip' })
         } else {
             const input = await inputPath(msg, msg.file)
             if (input.temporary) cleanup.push(input.path)
