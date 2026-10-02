@@ -1,5 +1,5 @@
 import got from 'got'
-import { createReadStream, createWriteStream } from 'fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync } from 'fs'
 import { pipeline } from 'stream/promises';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
@@ -162,6 +162,39 @@ export async function stopService(md_url, service) {
   }
 }
 
+
+// ---- MessyDesk's disk (MD_PATH) -----------------------------------------------------------
+
+/** The MessyDesk root that contains data/ (MD_PATH may also point at data/ itself), or null. */
+export function mdRoot() {
+  const raw = String(process.env.MD_PATH || '').trim()
+  if (!raw) return null
+  let root = path.resolve(raw)
+  if (path.basename(root) === 'data') root = path.dirname(root)
+  return root
+}
+
+/** A message path (`data/<db>/...`, relative to the MessyDesk root) on this disk, or null. */
+export function resolveMdPath(relative) {
+  const root = mdRoot()
+  if (!root || !relative || path.isAbsolute(String(relative))) return null
+  const resolved = path.resolve(root, String(relative))
+  if (!resolved.startsWith(root + path.sep)) return null
+  return existsSync(resolved) ? resolved : null
+}
+
+/** data/<db>/tmp of the database the message belongs to: where the /files/tmp callback looks. */
+export function tmpDirFor(msg) {
+  const root = mdRoot()
+  if (!root) throw new Error('MD_PATH is not set')
+  const ref = msg?.file?.path || msg?.files?.[0]?.path || ''
+  const parts = String(ref).replace(/\\/g, '/').split('/').filter(Boolean)
+  const at = parts.indexOf('data')
+  if (at < 0 || !parts[at + 1]) throw new Error(`Cannot find data/<db> in message path: ${ref}`)
+  const dir = path.join(root, 'data', parts[at + 1], 'tmp')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
 
 export async function getFile(md_url, file_rid, user, source) {
   const sourcePath = source ? source : '';

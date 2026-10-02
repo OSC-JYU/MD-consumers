@@ -33,23 +33,25 @@ The queue loop wraps the job payload as `{ json: () => job.payload }` (a leftove
 
 ## 5. File Type Inference from Extension
 
-`downloadFile()` in `funcs.mjs` infers the file type from extension with a small fixed list. JSON files get special "double extension" handling: `data.human.json` → type `human.json`.
+The file type comes from the extension with a small fixed list. JSON files get special "double extension" handling: `data.human.json` → type `human.json`. The `elg` adapter uses the `type` a service gives for an output first (needed for binary outputs such as a `.safetensors` vector index).
 
 This type field is then stored in MessyDesk's database and used for display routing.
 
-**Verified from:** `src/funcs.mjs` `downloadFile()`, `extractDoubleExtension()`.
+**Verified from:** `src/funcs.mjs` `downloadFile()`, `extractDoubleExtension()`; `src/adapters/elg.mjs` `typeFromName()`.
 
 ## 6. Solr Adapter Reads Files from Disk
 
-Unlike all other adapters that download files via HTTP (`getFile()`), the Solr adapter reads directly from the filesystem using `MD_PATH`. It has **path traversal protection** that rejects absolute paths and paths resolving outside the MD root.
+The Solr adapter reads directly from the filesystem using `MD_PATH` (so does `elg` when `MD_PATH` is set; the other adapters download inputs via HTTP with `getFile()`). It has **path traversal protection** that rejects absolute paths and paths resolving outside the MD root.
 
 **Verified from:** `src/adapters/solr.mjs` `resolveMdRelativePath()`.
 
-## 7. Batch Cancellation Only in elg_fs
+## 7. Batch Cancellation Is Enforced by the Backend
 
-Only the `elg_fs` adapter checks batch status (`GET /api/batches/:rid`) before processing each file. Other adapters process all messages regardless of batch state. This means a cancelled batch will still have in-flight messages processed by non-fs adapters.
+No adapter checks batch state before calling its service (`elg_fs` had a check, but it was disabled).
+A paused or cancelled batch is handled by the backend: the queue stops handing out its jobs, and
+results that still arrive for it are dropped.
 
-**Verified from:** `src/adapters/elg_fs.mjs` `shouldContinueBatch()`.
+**Verified from:** `src/adapters/elg.mjs`; MessyDesk-new `ResultsService.handleOutput`.
 
 ## 10. Consumer Deregistration Requires Clean Shutdown
 
