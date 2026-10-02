@@ -7,7 +7,6 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 
 import { 
-    objectToURLParams,
     getFile,
     getFilesFromStore,
     sendError,
@@ -16,7 +15,6 @@ import {
 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
-const DEFAULT_USER = 'local.user@localhost'
 const STORAGE_MODE = (process.env.STORAGE_MODE || process.env.FILE_STORAGE_MODE || 'http').toLowerCase()
 
 
@@ -32,6 +30,7 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -110,6 +109,6 @@ export async function process_msg(service_url, message) {
         //console.log(error)
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(msg, error, MD_URL)
+        await sendError(msg, error, MD_URL)
     }
 }

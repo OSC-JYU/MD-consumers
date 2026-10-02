@@ -20,7 +20,7 @@ MD-tesseract repository has nomad.hcl that tells how it can be run in Nomad. We 
 
 
     cd MD-consumers
-    TOPIC=md-tesseract NOMAD_HCL_PATH=/absolute/path/to/MD-tesseract/nomad.hcl node src/index.mjs
+    TOPIC=md-tesseract SERVICE_TOKEN=<token> NOMAD_HCL_PATH=/absolute/path/to/MD-tesseract/nomad.hcl node src/index.mjs
 
 This would start service container (md-tesseract) witn nomad and adapter code will register service to MessyDesk backend -> User can OCR images with Tesseract.
 
@@ -32,6 +32,13 @@ If API is external - like commercial inference APIs for example - then you need 
 TODO: documentation
 
 
+
+## Authentication
+
+Set `SERVICE_TOKEN` to the same value as the backend's `SERVICE_TOKEN`. Every call to the backend sends
+`Authorization: Bearer <SERVICE_TOKEN>`; calls made for a user (file downloads, entity linking) also send
+`mail: <msg.userId>`. Without `SERVICE_TOKEN` the consumer falls back to the old `mail: local.user@localhost`
+header, which the backend accepts only while its `SERVICE_AUTH_LEGACY_MAIL=true`.
 
 ## Optional environment variables
 

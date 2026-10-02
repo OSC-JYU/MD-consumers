@@ -4,12 +4,13 @@ import path from 'path';
 
 import { 
     sendError,
+    sendDone,
+    mdHeaders,
     getElapsedSeconds
 } from '../funcs.mjs';
 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
-const DEFAULT_USER = 'local.user@localhost'
 
 
 async function shouldContinueBatch(msg) {
@@ -21,9 +22,7 @@ async function shouldContinueBatch(msg) {
 
     try {
         const batch = await got.get(url, {
-            headers: {
-                'mail': DEFAULT_USER,
-            },
+            headers: mdHeaders(msg?.userId),
         }).json()
 
         const status = String(batch?.status || batch?.state || 'running').toLowerCase()
@@ -161,17 +160,13 @@ async function sendTmpFilesToMessyDesk(msg, serviceResponse, startedAt = null) {
         if(elapsed !== null) {
             callbackMessage.response.time = elapsed
         }
-console.log(callbackMessage.role)
         try {
             await got.post(urlTmp, {
                 json: {
                     message: callbackMessage,
                     tmp_path: callbackTmpName,
                 },
-                headers: {
-                    'Content-Type': 'application/json',
-                    'mail': DEFAULT_USER,
-                },
+                headers: mdHeaders(),
             }).json()
             sent += 1
         } catch (err) {
@@ -220,6 +215,7 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -265,16 +261,7 @@ export async function process_msg(service_url, message) {
         }
 
         // Notify MD that we are done
-        const done_md = `${MD_URL}/api/nomad/process/files/done`
-        const done_md_response = await got.post(done_md, {
-            body: JSON.stringify(msg),
-            headers: {
-                'Content-Type': 'application/json',
-                'mail': DEFAULT_USER
-            },
-        }).json();
-        
-        console.log(done_md_response)
+        await sendDone(msg, MD_URL)
 
 
     } catch (error) {
@@ -284,6 +271,6 @@ export async function process_msg(service_url, message) {
         
         console.error('elg_api: Error reading, sending, or saving the image:', error.message);
 
-        sendError(msg, error, MD_URL)
+        await sendError(msg, error, MD_URL)
     }
 }

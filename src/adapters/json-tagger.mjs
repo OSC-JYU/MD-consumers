@@ -1,21 +1,16 @@
-import { pipeline } from 'stream/promises';
-import stream from 'node:stream';
-import fs from 'fs-extra';
-import FormData from 'form-data';
 import got from 'got'
-import { v4 as uuidv4 } from 'uuid';
-import path from 'path';
 
 import { 
     getTextFromFile,
     getFile,
     sendError,
+    sendDone,
+    mdHeaders,
     withResponseTime
 } from '../funcs.mjs';
 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
-const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message) {
@@ -30,23 +25,22 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
 
-        let index_data 
-        console.log(typeof msg)
-        console.log(msg)
-        if(!service_url.startsWith('http')) service_url = 'http://' + service_url
-        console.log(service_url)
         console.log('**************** json-tagger API ***************')
-        //console.log(payload)
         console.log(JSON.stringify(msg, null, 2))
-        console.log(msg.target)
 
-        if(msg.task == 'tag') {
-            // get file from MessyDesk and put it in formdata
-            var readpath = await getFile(MD_URL, msg.target, msg.userId)
+        // Older messages carried the task id as a string and the file rid in `target`.
+        const taskId = msg.task?.id || msg.task
+        const fileRid = msg.target || msg.file?.['@rid']
+        const typePrefix = msg.id || msg.service?.id
+
+        if(taskId == 'tag') {
+            if(!fileRid) throw new Error('No file found in message')
+            var readpath = await getFile(MD_URL, fileRid, msg.userId)
             // read content from file
             const content = await getTextFromFile(readpath)
             const json_content = JSON.parse(content)
@@ -55,7 +49,7 @@ export async function process_msg(service_url, message) {
             for(var item of json_content) {
                 console.log(item.word)
                 var entity = {
-                    type: msg.id + '-' + item.entity_group,
+                    type: typePrefix + '-' + item.entity_group,
                     label: item.word,
                     color: '#ff8844',
                     icon: 'mdi-account'
@@ -64,29 +58,17 @@ export async function process_msg(service_url, message) {
                 entities.push(entity)
             }
 
-            const options= {
-                body: JSON.stringify(entities),
-                headers: {
-                'Content-Type': 'application/json',
-                'mail': msg.userId
-                }
-            };
-    
-            // // // send payload to SOLR 
-            var url = `${MD_URL}/api/entities/link/${msg.target.replace('#', '')}`
+            // link the entities to the file as the job's user
+            var url = `${MD_URL}/api/entities/link/${fileRid.replace('#', '')}`
             console.log(url)
-            const response = await got.post(url, options)
+            const response = await got.post(url, { json: entities, headers: mdHeaders(msg.userId) })
             console.log(response.statusCode)
 
             withResponseTime(msg, startedAt)
-            await got.post(`${MD_URL}/api/nomad/process/files/done`, {
-                body: JSON.stringify(msg),
-                headers: {
-                    'Content-Type': 'application/json',
-                    'mail': DEFAULT_USER,
-                },
-            })
+            await sendDone(msg, MD_URL)
 
+        } else {
+            throw new Error(`Task not found: ${taskId}`)
         }
 
     
@@ -96,9 +78,9 @@ export async function process_msg(service_url, message) {
         console.log(error.status)
         console.log(error.code)
         console.log(error)
-        console.error('api-indexer: Error in tagging:', error.message);
+        console.error('json-tagger: Error in tagging:', error.message);
 
-        //sendError(msg, error, url_md)
+        await sendError(msg, error, MD_URL)
     }
 
 }

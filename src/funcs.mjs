@@ -11,6 +11,55 @@ import { ensureDir } from 'fs-extra'
 const KEEP_FILENAME = 1
 const DEFAULT_USER = 'local.user@localhost'
 const DATA_DIR = './data'
+const SERVICE_TOKEN = String(process.env.SERVICE_TOKEN || '').trim()
+const CALLBACK_PATH = '/api/nomad/process/files'
+const ZIP_WAIT_MAX_MS = Number(process.env.ZIP_WAIT_MAX_MS || 10 * 60 * 1000)
+const ZIP_POLL_MS = Number(process.env.ZIP_POLL_MS || 2000)
+
+let warnedNoToken = false
+
+// Headers for every call to the MessyDesk backend. The service token authenticates the consumer;
+// `user` (the job's msg.userId) is added only when the call acts for that user, e.g. downloading
+// their file. Without SERVICE_TOKEN the old admin `mail` header is sent, which the backend accepts
+// only while SERVICE_AUTH_LEGACY_MAIL=true.
+export function mdHeaders(user = null) {
+  if(SERVICE_TOKEN) {
+    const headers = { authorization: `Bearer ${SERVICE_TOKEN}` }
+    if(user) headers.mail = user
+    return headers
+  }
+  if(!warnedNoToken) {
+    warnedNoToken = true
+    console.log('WARN: SERVICE_TOKEN is not set, falling back to the legacy mail header')
+  }
+  return { mail: user || DEFAULT_USER }
+}
+
+// Callers pass either MD_URL or MD_URL + '/api/nomad/process/files'; both resolve to the backend root.
+function backendRoot(url) {
+  const base = String(url || '').replace(/\/+$/, '')
+  const index = base.indexOf(CALLBACK_PATH)
+  return index >= 0 ? base.slice(0, index) : base
+}
+
+// The backend stores `code` and `message` of the error on the error node; an Error object would
+// serialize to {} (or to a huge got error), so send only the useful fields.
+export function errorPayload(error) {
+  if(!error) return { message: 'unknown error' }
+  if(typeof error === 'string') return { message: error }
+  const payload = { message: error.message || error.error || String(error) }
+  if(error.code) payload.code = error.code
+  const status = error.response?.statusCode || error.status
+  if(status) payload.status = status
+  const body = error.response?.body
+  if(body) payload.details = (typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 2000)
+  return payload
+}
+
+function describeRequestError(prefix, e) {
+  const detail = e?.response?.body || e?.message || String(e)
+  return new Error(`${prefix}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`)
+}
 
 export async function createDataDir() {
 	try {
@@ -49,9 +98,9 @@ export async function getServiceURL(nomad_url, request, service, nomadMode, wait
         }
     } catch(e) {
         if(e.code == 'ECONNREFUSED')
-          throw(`Nomad not found from ${nomad_url}`)
+          throw new Error(`Nomad not found from ${nomad_url}`)
         else
-          throw('Error in nomad query:' , e.code)
+          throw describeRequestError('Error in nomad query', e)
     }
 	return service_url
 }
@@ -82,7 +131,7 @@ export async function createService(md_url, service, options = {}) {
   const url = md_url + `/api/nomad/service/${service}`
   console.log('creating service:', url)
   try {
-      const requestOptions = { headers: { 'mail': DEFAULT_USER } }
+      const requestOptions = { headers: mdHeaders() }
       if(options.nomadHclPath) {
         let nomadHcl = await fs.readFile(options.nomadHclPath, 'utf-8')
         nomadHcl = applyTopicToNomadHcl(nomadHcl, service)
@@ -92,9 +141,9 @@ export async function createService(md_url, service, options = {}) {
       return response
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
-        throw(`Messydesk not found from ${md_url}`)
+        throw new Error(`Messydesk not found from ${md_url}`)
       else
-        throw('Error in starting service with MessyDesk API query:' , e.response.body)
+        throw describeRequestError('Error in starting service with MessyDesk API query', e)
   }
 }
 
@@ -102,14 +151,14 @@ export async function createService(md_url, service, options = {}) {
 export async function stopService(md_url, service) {
   const url = md_url + `/api/nomad/service/${service}`
   try {
-      const options = { headers: { 'mail': DEFAULT_USER } }
+      const options = { headers: mdHeaders() }
       var response = await got.delete(url, options).json()  
       return response
   } catch(e) {
       if(e.code == 'ECONNREFUSED')
-        throw(`Messydesk not found from ${md_url}`)
+        throw new Error(`Messydesk not found from ${md_url}`)
       else
-        throw('Error in stopping service with MessyDesk API query:' , e.response.body)
+        throw describeRequestError('Error in stopping service with MessyDesk API query', e)
   }
 }
 
@@ -122,7 +171,7 @@ export async function getFile(md_url, file_rid, user, source) {
 
   try {
     await pipeline(
-      got.stream(file_url, { headers: { mail: user } }),
+      got.stream(file_url, { headers: mdHeaders(user) }),
       createWriteStream(writepath)
     );
     console.log(`File downloaded to ${writepath}`);
@@ -133,13 +182,30 @@ export async function getFile(md_url, file_rid, user, source) {
   }
 }
 
+// The backend builds set ZIPs asynchronously: start a job, poll it, then download the result.
 export async function getFilesZip(md_url, set_rid, user, source) {
   const filename = uuidv4();
   const writepath = path.join(DATA_DIR, 'source', filename);
-  const zip_url = `${md_url}/api/sets/${set_rid.replace('#', '')}/files/zip`; // this is the url to get the zip file
+  const headers = mdHeaders(user);
+  const job = await got.post(`${md_url}/api/sets/${set_rid.replace('#', '')}/files/zip/jobs`, { headers }).json();
+
+  const startedAt = Date.now();
+  while(true) {
+    const status = await got.get(`${md_url}${job.status_url}`, { headers, throwHttpErrors: false });
+    const body = JSON.parse(status.body || '{}');
+    if(body.status === 'ready') break;
+    if(status.statusCode >= 400 || body.status === 'failed') {
+      throw new Error(`Zip job ${job.job_id} failed: ${body.message || status.statusCode}`);
+    }
+    if(Date.now() - startedAt > ZIP_WAIT_MAX_MS) {
+      throw new Error(`Zip job ${job.job_id} not ready after ${ZIP_WAIT_MAX_MS} ms`);
+    }
+    await sleep(ZIP_POLL_MS);
+  }
+
   try {
     await pipeline(
-      got.stream(zip_url, { headers: { mail: user } }),
+      got.stream(`${md_url}${job.download_url}`, { headers }),
       createWriteStream(writepath)
     );
     console.log(`File downloaded to ${writepath}`);
@@ -148,36 +214,6 @@ export async function getFilesZip(md_url, set_rid, user, source) {
     console.error(`Error during file download or write: ${error.message}`);
     throw error;
   }
-}
-
-export function objectToURLParams(obj) {
-    const params = [];
-  
-    for (let key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        let value = obj[key];
-        if (Array.isArray(value)) {
-          value.forEach((item) => {
-            params.push(`${encodeURIComponent(key)}[]=${encodeURIComponent(item)}`);
-          });
-        } else {
-          params.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-        }
-      }
-    }
-  
-    return params.join('&');
-  }
-
-
-export function getPlainText(text) {
-  var lines = []
-  if(Array.isArray(text)) {
-    for(var t of text) {
-      lines.push(t[1][0])
-    }
-  }
-  return lines.join(' ')
 }
 
 export function getElapsedSeconds(startTime) {
@@ -306,7 +342,7 @@ async function sendFile(filedata, message, md_url) {
     body: formData,
     headers: {
       ...formData.getHeaders(),
-      'mail': DEFAULT_USER
+      ...mdHeaders()
     }
   });
   if(response.ok)
@@ -315,14 +351,13 @@ async function sendFile(filedata, message, md_url) {
     console.log('File not streamed')
 }
 
-export async function sendError(data, error, url_md, user) {
-
-  if(!user) user = DEFAULT_USER
-  
+// Records a failed job in MessyDesk (an error node under the process). `url_md` may be MD_URL or
+// the callback URL. Never throws: a failing error report must not hide the original error.
+export async function sendError(data, error, url_md) {
   try {
-      await got.post(url_md + '/api/nomad/process/files/error', {json: {error:error, message: data}, headers: { 'mail': user }})
+      await got.post(backendRoot(url_md) + CALLBACK_PATH + '/error', {json: {error: errorPayload(error), message: data || {}}, headers: mdHeaders()})
   } catch (e) {
-      console.log('sending error failed')
+      console.log('sending error failed:', e.message)
   }
 }
 
@@ -359,7 +394,7 @@ export async function sendJSONFile(filedata, message, md_url) {
     body: formData,
     headers: {
       ...formData.getHeaders(),
-      'mail': DEFAULT_USER
+      ...mdHeaders()
     }
   });
 
@@ -407,7 +442,7 @@ export async function sendTextFile(filedata, message, md_url, STRING_CONTENT = f
     body: formData,
     headers: {
       ...formData.getHeaders(),
-      'mail': DEFAULT_USER
+      ...mdHeaders()
     }
   });
 
@@ -445,17 +480,9 @@ export async function getFileBuffer(filepath, asBase64 = false) {
   }
 
 
+// Tells MessyDesk that a job finished without output files. `md_url` may be MD_URL or the callback URL.
 export async function sendDone(message, md_url) {
-  await got.post(md_url + '/done', {json: message, headers: { 'mail': DEFAULT_USER }})
-}
-
-function getHeaders(user) {
-  const options = {
-    headers: {
-        mail: user
-    }
-  }
-  return options    
+  await got.post(backendRoot(md_url) + CALLBACK_PATH + '/done', {json: message, headers: mdHeaders()})
 }
 
 function normalizeDescriptor(descriptor, topic) {
@@ -489,9 +516,9 @@ async function pathExists(filePath) {
   }
 }
 
-export async function getBackendServiceDescriptor(md_url, topic, user = DEFAULT_USER) {
+export async function getBackendServiceDescriptor(md_url, topic) {
   try {
-    const descriptor = await got.get(`${md_url}/api/services/${topic}`, { headers: { mail: user } }).json();
+    const descriptor = await got.get(`${md_url}/api/services/${topic}`, { headers: mdHeaders() }).json();
     return normalizeDescriptor(descriptor, topic);
   } catch(error) {
     return null;
@@ -569,14 +596,14 @@ export async function getRuntimeConfigDescriptor(service_url, topic) {
   }
 }
 
-export async function registerServiceDescriptor(md_url, descriptor, source = 'runtime', user = DEFAULT_USER) {
+export async function registerServiceDescriptor(md_url, descriptor, source = 'runtime') {
   if(!descriptor) return null;
   const response = await got.post(`${md_url}/api/services/register`, {
     json: {
       source,
       service: descriptor,
     },
-    headers: { mail: user },
+    headers: mdHeaders(),
   }).json();
   return response;
 }
@@ -589,7 +616,6 @@ export async function registerServiceDescriptorWithRetry({
   mdUrl,
   descriptor,
   source = 'runtime',
-  user = DEFAULT_USER,
   maxAttempts = 5,
   initialDelayMs = 500,
   maxDelayMs = 10000,
@@ -603,7 +629,7 @@ export async function registerServiceDescriptorWithRetry({
   while(attempt < maxAttempts) {
     attempt += 1;
     try {
-      return await registerServiceDescriptor(mdUrl, descriptor, source, user);
+      return await registerServiceDescriptor(mdUrl, descriptor, source);
     } catch(error) {
       lastError = error;
       if(attempt >= maxAttempts) {
@@ -617,7 +643,7 @@ export async function registerServiceDescriptorWithRetry({
   throw lastError;
 }
 
-export async function resolveDescriptorSourceChain({ topic, adapterName = null, descriptorPath = null, mdUrl, serviceUrl = null, user = DEFAULT_USER }) {
+export async function resolveDescriptorSourceChain({ topic, adapterName = null, descriptorPath = null, mdUrl, serviceUrl = null }) {
   const runtimeDescriptor = await getRuntimeConfigDescriptor(serviceUrl, topic);
   if(runtimeDescriptor) {
     return { descriptor: runtimeDescriptor, source: 'runtime-config' };
@@ -628,7 +654,7 @@ export async function resolveDescriptorSourceChain({ topic, adapterName = null, 
     return { descriptor: adapterDescriptor, source: descriptorPath ? 'explicit-descriptor' : 'adapter-descriptor' };
   }
 
-  const backendDescriptor = await getBackendServiceDescriptor(mdUrl, topic, user);
+  const backendDescriptor = await getBackendServiceDescriptor(mdUrl, topic);
   if(backendDescriptor) {
     return { descriptor: backendDescriptor, source: 'backend-registry' };
   }

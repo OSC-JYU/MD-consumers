@@ -57,7 +57,7 @@
 - Generic adapter for services following a common HTTP multipart protocol
 - Sends file + message JSON to `service_url/process`
 - Downloads result files from the service's output store
-- Supports batch input via ZIP (`getFilesZip` when `input_set` present)
+- Supports batch input via ZIP (`getFilesZip` when `input_set` present): starts a set ZIP job, polls it and downloads the ZIP
 - Can forward source file if `msg.file.source` exists
 
 **Verified from:** `src/adapters/elg.mjs`
@@ -109,7 +109,6 @@
 - Integrates with DSpace 7 repository API
 - `init` task: fetches metadata fields (Dublin Core only) and community/collection hierarchy
 - Export tasks send files to DSpace with metadata mapping
-- Uses `cld` library for language detection
 
 **Verified from:** `src/adapters/dspace7.mjs`
 

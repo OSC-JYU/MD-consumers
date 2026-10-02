@@ -14,6 +14,8 @@ import {
   getRuntimeConfigDescriptor,
   stopService,
   registerServiceDescriptorWithRetry,
+  mdHeaders,
+  sendError,
 } from './funcs.mjs';
 
 import { createQueueClient } from './queueClient.mjs';
@@ -31,7 +33,6 @@ const SERVICE_JSON_PATH = process.env.SERVICE_JSON_PATH || process.env.SERVICE_D
 const NOMAD_HCL_PATH_ENV = process.env.NOMAD_HCL_PATH || null;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT || 0);
 
-const DEFAULT_USER = 'local.user@localhost';
 const REGISTRATION_MAX_ATTEMPTS = Number(process.env.REGISTRATION_MAX_ATTEMPTS || 5);
 const REGISTRATION_INITIAL_DELAY_MS = Number(process.env.REGISTRATION_INITIAL_DELAY_MS || 500);
 const HAS_EXPLICIT_DESCRIPTOR_PATH = Boolean(SERVICE_JSON_PATH);
@@ -194,7 +195,6 @@ async function resolveRequiredDescriptor({
   descriptorPath,
   mdUrl,
   serviceUrl,
-  user,
   waitForRuntime = false,
 }) {
   if (descriptorPath) {
@@ -204,7 +204,6 @@ async function resolveRequiredDescriptor({
       descriptorPath,
       mdUrl,
       serviceUrl: null,
-      user,
     });
     return resolved;
   }
@@ -240,7 +239,7 @@ async function triggerServiceHelpIngest(serviceId, descriptor = null) {
   const ingestUrl = `${MD_URL}/api/services/${serviceId}/help/ingest`;
   const configuredHelpUrl = HELP_URL || descriptor?.help_url || null;
   try {
-    const options = { headers: { mail: DEFAULT_USER } };
+    const options = { headers: mdHeaders() };
     if (configuredHelpUrl) {
       options.searchParams = { help_url: configuredHelpUrl };
     }
@@ -329,7 +328,7 @@ async function shutdown(signal = 'SIGINT') {
   stopped = true;
   clearInterval(interval);
 
-  const options = { headers: { mail: DEFAULT_USER } };
+  const options = { headers: mdHeaders() };
 
   try {
     if (adapter_id && adapterActiveInBackend) {
@@ -349,10 +348,18 @@ async function shutdown(signal = 'SIGINT') {
     console.log('cleanup error (nomad stop):', e.message);
   }
 
+  // Several consumers may serve one TOPIC: forget the registration only when no other consumer
+  // is left, otherwise the others would vanish from the registry until their next heartbeat.
   try {
     if (serviceRegisteredInBackend) {
-      await got.delete(`${MD_URL}/api/services/${TOPIC}`, options);
-      console.log('service registration deleted:', TOPIC);
+      const service = await got.get(`${MD_URL}/api/services/${TOPIC}`, options).json().catch(() => null);
+      const others = (service?.consumers || []).filter((id) => id !== adapter_id);
+      if (others.length === 0) {
+        await got.delete(`${MD_URL}/api/services/${TOPIC}`, options);
+        console.log('service registration deleted:', TOPIC);
+      } else {
+        console.log(`service registration kept: ${others.length} other consumer(s) still serve ${TOPIC}`);
+      }
     }
   } catch (e) {
     console.log('cleanup error (service registration delete):', e.message);
@@ -386,7 +393,6 @@ async function main() {
       descriptorPath: EFFECTIVE_SERVICE_JSON_PATH,
       mdUrl: MD_URL,
       serviceUrl: null,
-      user: DEFAULT_USER,
       waitForRuntime: false,
     });
     service_json = withTopicAsId(bootstrap.descriptor);
@@ -434,7 +440,6 @@ async function main() {
     descriptorPath: EFFECTIVE_SERVICE_JSON_PATH,
     mdUrl: MD_URL,
     serviceUrl: service_url,
-    user: DEFAULT_USER,
     waitForRuntime: true,
   });
   service_json = withTopicAsId(resolvedRegistration.descriptor);
@@ -454,7 +459,6 @@ async function main() {
     mdUrl: MD_URL,
     descriptor: service_json,
     source: registrationSource,
-    user: DEFAULT_USER,
     maxAttempts: REGISTRATION_MAX_ATTEMPTS,
     initialDelayMs: REGISTRATION_INITIAL_DELAY_MS,
   });
@@ -468,7 +472,7 @@ async function main() {
   // --- Register adapter with backend ---
   const registerUrl = `${MD_URL}/api/services/${TOPIC}/adapter/${adapter_id}`;
   console.log('registering consumer:', registerUrl);
-  const options = { headers: { mail: DEFAULT_USER } };
+  const options = { headers: mdHeaders() };
   await got.post(registerUrl, { ...options, json: { control_url: controlUrl } }).json();
   adapterActiveInBackend = true;
 
@@ -484,7 +488,6 @@ async function main() {
         descriptorPath: EFFECTIVE_SERVICE_JSON_PATH,
         mdUrl: MD_URL,
         serviceUrl: service_url,
-        user: DEFAULT_USER,
         waitForRuntime: false,
       });
       service_json = withTopicAsId(resolvedHeartbeat.descriptor);
@@ -494,7 +497,6 @@ async function main() {
         mdUrl: MD_URL,
         descriptor: service_json,
         source: heartbeatSource,
-        user: DEFAULT_USER,
         maxAttempts: 3,
         initialDelayMs: REGISTRATION_INITIAL_DELAY_MS,
       });
@@ -525,7 +527,6 @@ async function main() {
     mdUrl: MD_URL,
     topic: TOPIC,
     adapterId: adapter_id,
-    user: DEFAULT_USER,
   });
 
   // --- Main processing loop ---
@@ -568,6 +569,9 @@ async function main() {
       }
     }, 40_000);
 
+    // Adapters report their own failures with sendError and return normally. An adapter that
+    // throws gets the job retried by the backend; after the last attempt the error is recorded
+    // here so the user sees an error node.
     try {
       const m = { json: () => job.payload };
       await process_msg(service_url, m);
@@ -575,7 +579,10 @@ async function main() {
     } catch (e) {
       console.log(`ERROR processing job ${job.id}:`, e.message);
       try {
-        await queueClient.fail(job.id, e);
+        const result = await queueClient.fail(job.id, e);
+        if (result?.permanent) {
+          await sendError(job.payload, e, MD_URL);
+        }
       } catch (fe) {
         console.log('fail report error:', fe.message);
       }

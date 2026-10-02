@@ -90,20 +90,12 @@ function createSchema(simpleJson) {
   return convertType(simpleJson);
 }
 
-// Example usage - much simpler!
-const TestSchema = createSchema({
-  books: [{
-    title: "string",
-    year: "string", 
-    authors: ["string"]
-  }]
-});
 
 
 
 export async function process_msg(service_url, message) {
 
-    let payload, msg
+    let msg
   const startedAt = process.hrtime()
     const url_md = `${MD_URL}/api/nomad/process/files`
 
@@ -113,6 +105,7 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -242,9 +235,9 @@ export async function process_msg(service_url, message) {
         console.log(error.status)
         console.log(error.code)
         //console.log(error)
-        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
+        console.error('azure-ai: Error processing request:', error.message);
 
-        sendError(msg, error, MD_URL)
+        await sendError(msg, error, MD_URL)
     }
 
 }
@@ -262,10 +255,10 @@ function process_metadata(data) {
         }
     }
 
-    metadata.model = data.model || 'unknown';
-    metadata.tokens.in.count = data.usage.prompt_tokens || 0;
-    metadata.tokens.out.count = data.usage.completion_tokens || 0;
-    metadata.tokens.total = data.usage.total_tokens || 0;
+    metadata.model = data?.model || 'unknown';
+    metadata.tokens.in.count = data?.usage?.prompt_tokens || 0;
+    metadata.tokens.out.count = data?.usage?.completion_tokens || 0;
+    metadata.tokens.total = data?.usage?.total_tokens || 0;
 
 
     return metadata

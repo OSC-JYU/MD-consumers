@@ -130,7 +130,7 @@ Used by adapters that produce no output files (e.g., Solr indexer).
 ```
 POST /api/nomad/process/files/error
 Content-Type: application/json
-Body: { error: "<message>", message: <original payload> }
+Body: { error: { message, code?, status?, details? }, message: <original payload> }
 ```
 
 **Verified from:** `src/funcs.mjs` `sendError()`
@@ -147,14 +147,13 @@ Body: { error: "<message>", message: <original payload> }
 
 **Verified from:** `src/adapters/elg_fs.mjs`, `src/funcs.mjs`
 
-## Default User
+## Authentication Headers
 
-All system-level API calls (registration, heartbeat, cleanup) use the hardcoded identity:
+Every backend call gets its headers from `mdHeaders(user)` in `src/funcs.mjs`:
 
-```
-local.user@localhost
-```
+- `Authorization: Bearer <SERVICE_TOKEN>` always.
+- `mail: <msg.userId>` only when acting for the job's user (file and set ZIP downloads, entity linking).
+  The backend then checks that the user owns the file.
+- Without `SERVICE_TOKEN`: `mail: <user or local.user@localhost>` (legacy, see README).
 
-User-initiated processing preserves `msg.userId` from the original message.
-
-**Verified from:** All source files define `DEFAULT_USER = 'local.user@localhost'`
+**Verified from:** `src/funcs.mjs` `mdHeaders()`

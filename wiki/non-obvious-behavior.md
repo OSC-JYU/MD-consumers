@@ -2,7 +2,7 @@
 
 ## 1. Failed Jobs Are Retried by the Backend
 
-When `process_msg` throws, the consumer reports the failure via `POST /api/queue/{job_id}/fail`. The backend queue retries the job up to 3 times with exponential backoff (500ms × 2^(attempts-1), capped at 30s). After max attempts, the job is marked `failed`.
+When `process_msg` throws, the consumer reports the failure via `POST /api/queue/{job_id}/fail`. The backend queue retries the job up to 3 times with exponential backoff (500ms × 2^(attempts-1), capped at 30s). After max attempts, the job is marked `failed` (`permanent: true` in the answer) and the consumer sends the error with `sendError` so the user sees an error node. Adapters that catch their own errors are not retried (see adapter-contract.md).
 
 **Verified from:** `src/index.mjs` main loop, backend `src/queue.mjs`.
 
@@ -24,17 +24,12 @@ For `gemini-ai`, the `service_url` parameter is essentially ignored — the adap
 
 **Inferred:** Setting `DEV_URL=http://dummy` may be needed for Gemini to bypass service discovery.
 
-## 4. Double JSON Parse in Some Adapters
+## 4. `message.json()` Is a Shim
 
-In `gemini-ai.mjs`:
-```js
-payload = message.json()  // returns object
-msg = JSON.parse(payload) // parses it AGAIN as string
-```
+The queue loop wraps the job payload as `{ json: () => job.payload }` (a leftover of the NATS API), so
+`message.json()` returns the payload object. (gemini-ai used to `JSON.parse` it again, which always failed.)
 
-This suggests the NATS message `.json()` method may return a string in some code paths, or this is a legacy artifact. Other adapters call only `message.json()` and use the result directly.
-
-**Verified from:** `src/adapters/gemini-ai.mjs` vs other adapters.
+**Verified from:** `src/index.mjs` main loop.
 
 ## 5. File Type Inference from Extension
 
@@ -89,14 +84,9 @@ When processing multiple files, labels are constructed from various sources (ser
 
 **Verified from:** `src/funcs.mjs` `getFilesFromStore()` label assignment logic.
 
-## 14. Hardcoded Solr Core
+## 14. Solr Core
 
-The Solr core name is hardcoded to `messydesk`:
-```js
-var url = `${service_url}/solr/messydesk/update?commit=true`
-```
-
-The `SOLR_CORE` env var exists as a comment but is not wired up.
+The Solr core name comes from `SOLR_CORE` (default `messydesk`).
 
 **Verified from:** `src/adapters/solr.mjs`.
 

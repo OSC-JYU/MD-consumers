@@ -1,25 +1,17 @@
 
 import fs from 'fs-extra';
-import FormData from 'form-data';
 import got from 'got'
-import { v4 as uuidv4 } from 'uuid';
-import path from 'path';
-import { pipeline } from 'stream/promises';
-import stream from 'node:stream';
-import cld from 'cld';
 
 import { 
     getFile,
     sendStringTextFile,
     sendTextFile,
     sendError,
-    sendDone,
     withResponseTime
 } from '../funcs.mjs';
 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
-const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message_raw) {
@@ -34,6 +26,7 @@ export async function process_msg(service_url, message_raw) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -43,11 +36,6 @@ export async function process_msg(service_url, message_raw) {
         console.log('**************** DSPACE7 api ***************')
         //console.log(msg)
 
-        var dirname = uuidv4()
-        const writepath = path.join('data', dirname)
-        //const plainText = getPlainText(processedResults)
-        //console.log(plainText)
-        
         const dspace_url = msg.task.params.url
 
 
@@ -136,19 +124,11 @@ export async function process_msg(service_url, message_raw) {
         // ************** make_query task **************        
         } else if(msg.task.id == 'make_query') {
             // build query url
-            var query_url = `${dspace_url}/discover/search/objects?query=${msg.task.params.query}`
-            if(msg.task.params.scope) {
-                query_url += `&scope=${msg.task.params.scope}`
+            const query = new URLSearchParams({ query: msg.task.params.query || '' })
+            for(const key of ['scope', 'sort', 'page', 'size']) {
+                if(msg.task.params[key]) query.set(key, msg.task.params[key])
             }
-            if(msg.task.params.sort) {
-                query_url += `&sort=${msg.task.params.sort}`
-            }
-            if(msg.task.params.page) {
-                query_url += `&page=${msg.task.params.page}`
-            }
-            if(msg.task.params.size) {
-                query_url += `&size=${msg.task.params.size}`
-            }
+            const query_url = `${dspace_url}/discover/search/objects?${query}`
       
             console.log(query_url)
             const response = await got.get(query_url, {
@@ -175,7 +155,7 @@ export async function process_msg(service_url, message_raw) {
         // ************** get_abstracts task **************    
         } else if(msg.task.id == 'get_abstracts') {
 
-            var file = await getFile(MD_URL, msg.file['@rid'], DEFAULT_USER, '')
+            var file = await getFile(MD_URL, msg.file['@rid'], msg.userId, '')
             // read DSpace item as json
             const file_content = await fs.readFile(file, 'utf8')
             var item = JSON.parse(file_content)
@@ -193,15 +173,6 @@ export async function process_msg(service_url, message_raw) {
             }
         
             if(abstract) {
-
-                //var language = msg.params.language
-                if(msg.task.params.language_source == 'detect language') {
-                    var detected_language = await cld.detect(abstract)
-                    console.log(detected_language)
-                } else {
-                    var language = msg.task.params.language
-                    console.log(language)
-                }
 
                 if(item.metadata?.['dc.title']) {
                     var title = item.metadata?.['dc.title'][0].value
@@ -223,8 +194,8 @@ export async function process_msg(service_url, message_raw) {
         console.log(error.status)
         console.log(error.code)
         console.log(error)
-        console.error('elg_api: Error reading, sending, or saving:', error.message);
+        console.error('dspace7: Error reading, sending, or saving:', error.message);
 
-        sendError(msg, error, MD_URL)
+        await sendError(msg, error, MD_URL)
     }
 }

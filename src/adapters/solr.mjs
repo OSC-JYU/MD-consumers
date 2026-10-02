@@ -6,12 +6,13 @@ import {
     getTextFromFile,
     sendJSONFile,
     sendError,
+    sendDone,
     withResponseTime
 } from '../funcs.mjs';
 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
-const DEFAULT_USER = 'local.user@localhost'
+const SOLR_CORE = process.env.SOLR_CORE || 'messydesk'
 const MD_PATH_ENV = process.env.MD_PATH || ''
 const CONTAINER_MODE = String(process.env.CONTAINER || '').trim().toLowerCase()
 const STORAGE_MODE = String(process.env.STORAGE_MODE || process.env.FILE_STORAGE_MODE || 'disk').trim().toLowerCase()
@@ -116,9 +117,9 @@ function escapeSolrValue(value) {
 // for non multiValued field set" even when the schema correctly reports multiValued:true.
 async function updateTagsForNode(service_url, node_rid, tagFields) {
     const escapedNode = escapeSolrValue(node_rid)
-    const selectUrl = `${service_url}/solr/messydesk/select`
-    const getUrl = `${service_url}/solr/messydesk/get`
-    const updateUrl = `${service_url}/solr/messydesk/update?commit=true`
+    const selectUrl = `${service_url}/solr/${SOLR_CORE}/select`
+    const getUrl = `${service_url}/solr/${SOLR_CORE}/get`
+    const updateUrl = `${service_url}/solr/${SOLR_CORE}/update?commit=true`
 
     const selectResponse = await got.get(selectUrl, {
         searchParams: {q: `node:"${escapedNode}"`, fl: 'id', rows: 1000, wt: 'json'}
@@ -161,6 +162,7 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -215,17 +217,11 @@ export async function process_msg(service_url, message) {
             const result = await updateTagsForNode(service_url, fileRid, msg?.tag_fields || {})
             console.log('update_tags result:', result)
 
-            await got.post(`${MD_URL}/api/nomad/process/files/done`, {
-                json: withResponseTime({...msg, response: {...(msg?.response || {}), ...result}}, startedAt),
-                headers: {
-                    'mail': DEFAULT_USER,
-                },
-            })
+            await sendDone(withResponseTime({...msg, response: {...(msg?.response || {}), ...result}}, startedAt), MD_URL)
             return result
         } else {
 
-            console.log('invalid task')
-            return {error: 'invalid task'}
+            throw new Error(`invalid task: ${msg?.task?.id}`)
         }
         
         if(Array.isArray(index_data) && !index_data.length) {
@@ -241,11 +237,8 @@ export async function process_msg(service_url, message) {
             }
         };
 
-        // // send payload to SOLR 
-        //var url = `${service_url}/solr/messydesk/update?commit=true`
-        var url = `${service_url}/solr/messydesk/update?commit=true`
-   
-       // const SOLR_CORE = process.env.SOLR_CORE || 'messydesk'
+        // send payload to SOLR 
+        var url = `${service_url}/solr/${SOLR_CORE}/update?commit=true`
         console.log(url)
         const response = await got.post(url, options)
         console.log(response.body)
@@ -277,12 +270,7 @@ export async function process_msg(service_url, message) {
             }
         }
 
-        await got.post(`${MD_URL}/api/nomad/process/files/done`, {
-            json: donePayload,
-            headers: {
-                'mail': DEFAULT_USER,
-            },
-        })
+        await sendDone(donePayload, MD_URL)
 
         // if current_file is same as total_files, send the response to the next step
         if(shouldEmitOutputFile && msg.current_file == msg.total_files) {
@@ -297,7 +285,7 @@ export async function process_msg(service_url, message) {
         console.log(error)
         console.error('api-indexer: Error in indexing:', error.message);
 
-        sendError(msg, error, MD_URL)
+        await sendError(msg, error, MD_URL)
     }
 
 }

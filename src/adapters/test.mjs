@@ -13,11 +13,9 @@ import {
 
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
-const DEFAULT_USER = 'local.user@localhost'
 
 
 export async function process_msg(service_url, message) {
-    console.log('Processing message in process_a:', message.data);
 
     let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
@@ -29,6 +27,7 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -69,9 +68,10 @@ export async function process_msg(service_url, message) {
         console.log('pipeline error')
         console.log(error.code)
         //console.log(error)
-        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
+        console.error('test: Error processing the message:', error.message);
 
-        sendError(msg, error, MD_URL)
+        // Rethrown so that the backend retries the job; the consumer loop records the error
+        // after the last attempt.
         throw error
     }
 

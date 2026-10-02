@@ -3,7 +3,6 @@
 import { 
   getFile,
   sendJSONFile,
-  sendTextFile,
   sendError,
   getTextFromFile
 } from '../funcs.mjs';
@@ -14,7 +13,7 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 
 export async function process_msg(service_url, message) {
 
-    let payload, msg
+    let msg
     const url_md = `${MD_URL}/api/nomad/process/files`
     const start = process.hrtime();
 
@@ -24,9 +23,9 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
-    let g_result
     try {
         
         if(!service_url.startsWith('http')) service_url = 'http://' + service_url
@@ -46,17 +45,14 @@ export async function process_msg(service_url, message) {
         // send payload to service endpoint
         var annif_result = null
         if(msg.task.id === 'suggest') {
-            // Prepare content array for the model
-            const contentArray = [msg.task.params.prompts.content]
-            
-           
-            if (msg.file.type === 'text' || msg.file.extension === 'txt') {
-                // For text files, read the content directly and add as text
-                const textContent = await getTextFromFile(readpath, 4000)  // HARD LIMIT!
-                if (textContent) {
-                    annif_result = await getAnnifSuggestions(service_url, msg.task.params.project_id, textContent)
-                }
-            } 
+            if (msg.file.type !== 'text' && msg.file.extension !== 'txt') {
+                throw new Error('Annif accepts only text files')
+            }
+            const textContent = await getTextFromFile(readpath, 4000)  // HARD LIMIT!
+            if (!textContent) {
+                throw new Error('File is empty')
+            }
+            annif_result = await getAnnifSuggestions(service_url, msg.task.params.project_id, textContent)
 
 
         } else {
@@ -71,7 +67,7 @@ export async function process_msg(service_url, message) {
             time: parseFloat(seconds)
         }
 
-        const filedata = {label: msg.file.label + '.annif.json', content: 'test', type: 'annif.json', ext: 'json'}
+        const filedata = {label: msg.file.label + '.annif.json', content: annif_result, type: 'annif.json', ext: 'json'}
         await sendJSONFile(filedata, msg, url_md)
 
 
@@ -80,18 +76,22 @@ export async function process_msg(service_url, message) {
         console.log(error.status)
         console.log(error.code)
         //console.log(error)
-        console.error('elg_api: Error reading, sending, or saving the image:', error.message);
+        console.error('annif: Error processing the file:', error.message);
 
-        sendError(msg, error.message, MD_URL)
+        await sendError(msg, error, MD_URL)
     }
 
 }
 
 
+// Annif's suggest endpoint takes a form-encoded body (text, limit, threshold).
 async function getAnnifSuggestions(service_url, project_id, textContent) {   
-    const response = await fetch(`${service_url}/projects/${project_id}/suggest`, {
+    const response = await fetch(`${service_url}/projects/${encodeURIComponent(project_id)}/suggest`, {
         method: 'POST',
-        body: JSON.stringify({text: textContent})
+        body: new URLSearchParams({text: textContent})
     })
+    if (!response.ok) {
+        throw new Error(`Annif suggest failed with ${response.status}: ${await response.text()}`)
+    }
     return response.json()
 }

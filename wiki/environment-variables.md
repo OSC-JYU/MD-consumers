@@ -11,6 +11,7 @@
 | Variable | Default | Description |
 |---|---|---|
 | `MD_URL` | `http://localhost:8200` | MessyDesk core API base URL (also used for queue polling) |
+| `SERVICE_TOKEN` | `''` | Sent as `Authorization: Bearer` on every backend call; must match the backend's `SERVICE_TOKEN`. Unset: legacy `mail: local.user@localhost` header (backend `SERVICE_AUTH_LEGACY_MAIL=true` only) |
 | `NOMAD_URL` | `http://localhost:4646/v1` | Nomad API URL for service discovery |
 
 ## Service Discovery
@@ -56,6 +57,7 @@
 | `MD_PATH` | `solr` | MessyDesk data root path (enables direct file access; falls back to HTTP if unset) |
 | `CONTAINER` | `solr` | Container mode flag for path resolution |
 | `STORAGE_MODE` / `FILE_STORAGE_MODE` | `solr`, `poppler` | `disk` or `http` — controls file access strategy |
-| `SOLR_CORE` | `solr` | (commented out in source, hardcoded to `messydesk`) |
+| `SOLR_CORE` | `solr` | Solr core name (default `messydesk`) |
+| `ZIP_WAIT_MAX_MS` / `ZIP_POLL_MS` | `elg` | How long to wait for a set ZIP job (default 10 min) and the poll interval (default 2 s) |
 
 **Verified from:** `src/index.mjs` and adapter modules.

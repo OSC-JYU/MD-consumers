@@ -182,6 +182,6 @@ export async function process_msg(service_url, message) {
     console.log(error.status);
     console.log(error.code);
     console.error('ollama_api: Error processing request:', error.message);
-    sendError(msg, error, MD_URL);
+    await sendError(msg, error, MD_URL);
   }
 }
