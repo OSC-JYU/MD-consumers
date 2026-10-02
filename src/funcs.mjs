@@ -271,6 +271,8 @@ export async function getFilesFromStore(response, service_url, message, md_url, 
           } else {
             filedata = await downloadFile(url, service_url, KEEP_FILENAME);
           }
+          // A type given by the service wins over the one guessed from the URL (e.g. binary outputs).
+          if (file && typeof file.type === 'string' && file.type) filedata.type = file.type
           withResponseTime(message, startedAt)
           await sendFile(filedata, message, md_url)
           count++
