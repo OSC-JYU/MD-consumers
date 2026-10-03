@@ -202,11 +202,17 @@ async function inputPath(msg, ref) {
 
 /**
  * The input set as a ZIP. A whole-set job lists its files, so with MD_PATH the consumer zips them
- * from disk; otherwise the backend's set ZIP job builds it (needs md-zip_fs).
+ * from disk, with each file's source text (when the job names one) under sources/<rid>; otherwise
+ * the backend's set ZIP job builds it (needs md-zip_fs, and has no source texts).
  */
 async function setZip(msg) {
     const entries = (msg.files || []).map((f) => ({ name: f.label, path: mdRoot() ? resolveMdPath(f.path) : null }))
     if (entries.length && entries.every((e) => e.path)) {
+        // Source texts (e.g. what embeddings were computed from) go under sources/<rid>.
+        for (const f of msg.files) {
+            const sourcePath = f.source?.path ? resolveMdPath(f.source.path) : null
+            if (sourcePath) entries.push({ name: `sources/${String(f.source['@rid']).replace('#', '').replace(':', '_')}`, path: sourcePath })
+        }
         const out = path.join(os.tmpdir(), `md-set-${uuidv4()}.zip`)
         console.log(`zipping ${entries.length} set files from disk`)
         return writeZip(entries, out)
