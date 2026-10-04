@@ -221,11 +221,20 @@ async function setZip(msg) {
     return getFilesZip(MD_URL, msg.input_set, msg.userId)
 }
 
+/**
+ * A whole-set job (`whole_set`, with every file of the set in `files`) uploads the set as a ZIP.
+ * Set processing otherwise sends one job per file (many-to-one jobs too, with `input_set` and
+ * their place in the batch); each uploads just its own file.
+ */
+export function wantsSetZip(msg) {
+    return Boolean(msg?.input_set && (msg.whole_set || Array.isArray(msg.files)))
+}
+
 async function buildForm(msg, storage) {
     const form = new FormData()
     const cleanup = []
     if (storage === 'http') {
-        if (msg.input_set) {
+        if (wantsSetZip(msg)) {
             const zip = await setZip(msg)
             cleanup.push(zip)
             form.append('content', fs.createReadStream(zip), { filename: 'set.zip' })
