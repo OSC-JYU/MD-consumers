@@ -58,6 +58,7 @@
 | `CONTAINER` | `solr` | Container mode flag for path resolution |
 | `STORAGE_MODE` / `FILE_STORAGE_MODE` | `solr`, `poppler` | `disk` or `http` — controls file access strategy |
 | `SOLR_CORE` | `solr` | Solr core name (default `messydesk`) |
+| `SOLR_COMMIT_WITHIN_MS` | `solr` | Solr makes indexed pages and tag changes searchable within this many ms (default `1000`); replaces a commit per page |
 | `ZIP_WAIT_MAX_MS` / `ZIP_POLL_MS` | `elg` | How long to wait for a set ZIP job (default 10 min) and the poll interval (default 2 s) |
 
 **Verified from:** `src/index.mjs` and adapter modules.

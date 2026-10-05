@@ -13,6 +13,10 @@ import {
 
 const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const SOLR_CORE = process.env.SOLR_CORE || 'messydesk'
+// Solr makes changes visible within this many milliseconds. A commit per page (commit=true) took
+// ~70 ms per page at 400 000 pages and limited indexing to ~14 pages/s per consumer
+// (MessyDesk-new perf/results/search.md); commitWithin lets Solr batch the commits.
+const SOLR_COMMIT_WITHIN_MS = Number(process.env.SOLR_COMMIT_WITHIN_MS || 1000)
 const MD_PATH_ENV = process.env.MD_PATH || ''
 const CONTAINER_MODE = String(process.env.CONTAINER || '').trim().toLowerCase()
 const STORAGE_MODE = String(process.env.STORAGE_MODE || process.env.FILE_STORAGE_MODE || 'disk').trim().toLowerCase()
@@ -119,7 +123,7 @@ async function updateTagsForNode(service_url, node_rid, tagFields) {
     const escapedNode = escapeSolrValue(node_rid)
     const selectUrl = `${service_url}/solr/${SOLR_CORE}/select`
     const getUrl = `${service_url}/solr/${SOLR_CORE}/get`
-    const updateUrl = `${service_url}/solr/${SOLR_CORE}/update?commit=true`
+    const updateUrl = `${service_url}/solr/${SOLR_CORE}/update?commitWithin=${SOLR_COMMIT_WITHIN_MS}`
 
     const selectResponse = await got.get(selectUrl, {
         searchParams: {q: `node:"${escapedNode}"`, fl: 'id', rows: 1000, wt: 'json'}
@@ -238,7 +242,7 @@ export async function process_msg(service_url, message) {
         };
 
         // send payload to SOLR 
-        var url = `${service_url}/solr/${SOLR_CORE}/update?commit=true`
+        var url = `${service_url}/solr/${SOLR_CORE}/update?commitWithin=${SOLR_COMMIT_WITHIN_MS}`
         console.log(url)
         const response = await got.post(url, options)
         console.log(response.body)
