@@ -20,14 +20,14 @@
             "behaviour": "many-to-one",
             "params_help": {
                 "index_mode": {
-                    "name": "Index",
+                    "name": "Matching",
                     "display": "dropdown",
                     "values": {
-                        "full": "Full: finds parts of words too (about 7× the text on disk)",
-                        "light": "Light: whole words only (about the size of the text)"
+                        "full": "Partial word match: finds parts of words too (index about 7× the text)",
+                        "light": "Whole word match: whole words only (index about the size of the text)"
                     },
                     "default": "full",
-                    "help": "Both find OCR misspellings when search has \"include OCR misspellings\" on."
+                    "help": "Both find misspellings, such as OCR errors, when Fuzzy search is on."
                 }
             }
         },
