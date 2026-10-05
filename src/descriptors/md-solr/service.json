@@ -8,14 +8,28 @@
     "description": "Solr",
     "tasks": {
         "index": {
-            "params": {},
+            "params": {
+                "index_mode": "full"
+            },
             "source": "source_file",
             "name": "Search index",
             "description": "Create a search index for the texts.",
             "supported_formats": [
                 "txt"
             ],
-            "behaviour": "many-to-one"
+            "behaviour": "many-to-one",
+            "params_help": {
+                "index_mode": {
+                    "name": "Index",
+                    "display": "dropdown",
+                    "values": {
+                        "full": "Full: finds parts of words too (about 7× the text on disk)",
+                        "light": "Light: whole words only (about the size of the text)"
+                    },
+                    "default": "full",
+                    "help": "Both find OCR misspellings when search has \"include OCR misspellings\" on."
+                }
+            }
         },
         "delete": {
             "params": {},

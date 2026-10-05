@@ -199,7 +199,9 @@ export async function process_msg(service_url, message) {
                 set: setRid,
                 type: msg.file.type,
                 description: msg.file.description,
-                fulltext: content
+                // full (default): `fulltext` is indexed as word fragments (n-grams) and copied to
+                // the whole-word `fulltext_exact`; light: whole words only, about 7x smaller.
+                ...(msg?.task?.params?.index_mode === 'light' ? { fulltext_exact: content } : { fulltext: content })
             }]
 
             if(msg.set_process) {
