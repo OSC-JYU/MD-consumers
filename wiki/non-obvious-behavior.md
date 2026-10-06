@@ -51,7 +51,7 @@ No adapter checks batch state before calling its service (`elg_fs` had a check, 
 A paused or cancelled batch is handled by the backend: the queue stops handing out its jobs, and
 results that still arrive for it are dropped.
 
-**Verified from:** `src/adapters/elg.mjs`; MessyDesk-new `ResultsService.handleOutput`.
+**Verified from:** `src/adapters/elg.mjs`; MessyDesk (rewrite branch) `ResultsService.handleOutput`.
 
 ## 10. Consumer Deregistration Requires Clean Shutdown
 

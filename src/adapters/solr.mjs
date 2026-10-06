@@ -15,7 +15,7 @@ const MD_URL = process.env.MD_URL || 'http://localhost:8200'
 const SOLR_CORE = process.env.SOLR_CORE || 'messydesk'
 // Solr makes changes visible within this many milliseconds. A commit per page (commit=true) took
 // ~70 ms per page at 400 000 pages and limited indexing to ~14 pages/s per consumer
-// (MessyDesk-new perf/results/search.md); commitWithin lets Solr batch the commits.
+// (MessyDesk rewrite branch, perf/results/search.md); commitWithin lets Solr batch the commits.
 const SOLR_COMMIT_WITHIN_MS = Number(process.env.SOLR_COMMIT_WITHIN_MS || 1000)
 const MD_PATH_ENV = process.env.MD_PATH || ''
 const CONTAINER_MODE = String(process.env.CONTAINER || '').trim().toLowerCase()
