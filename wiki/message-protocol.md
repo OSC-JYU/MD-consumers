@@ -111,7 +111,7 @@ Parts:
 
 Used to send token counts, model version, modality info.
 
-**Verified from:** `src/adapters/gemini-ai.mjs`, `src/adapters/azure-ai.mjs`
+**Verified from:** `src/adapters/llm/core.mjs` (`usageMetadata`, `runJob`)
 
 ### Completion Signal
 

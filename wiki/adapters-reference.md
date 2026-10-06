@@ -4,9 +4,8 @@
 
 | Adapter | File | Service type | Input types | Output |
 |---|---|---|---|---|
-| `gemini-ai` | `gemini-ai.mjs` | Google Gemini LLM | image, text | text + metadata JSON |
-| `azure-ai` | `azure-ai.mjs` | Azure OpenAI | image, text | text + metadata JSON |
-| `ollama` | `ollama.mjs` | Self-hosted LLM (Ollama) | image, text | text/JSON + metadata |
+| `llm-openai` | `llm-openai.mjs` + `llm/core.mjs` | Any OpenAI-compatible LLM: OpenAI, Azure OpenAI, Ollama, vLLM, LM Studio, LiteLLM | image, text | text/JSON or autotag JSON + metadata JSON |
+| `llm-gemini` | `llm-gemini.mjs` + `llm/core.mjs` | Google Gemini (native API) | image, text | text/JSON or autotag JSON + metadata JSON |
 | `elg`, `elg_fs` | `elg.mjs` | Generic `/process` service, disk or http storage | any | outputs written to data/<db>/tmp |
 | `solr` | `solr.mjs` | Solr search indexing | text (disk path) | done signal |
 | `paddleocr` | `paddleocr.mjs` | PaddleOCR | image | OCR JSON |
@@ -19,37 +18,36 @@
 
 ## Adapter Details
 
-### gemini-ai
+### llm-openai and llm-gemini (LLM providers)
 
-- Uses `@google/genai` SDK directly (no HTTP proxy to a service)
-- `service_url` parameter is effectively unused (the SDK connects to Google's API)
-- For non-text files: uploads to Google's file manager, then creates multimodal prompt
-- For text files: reads content directly (hard limit: 4000 chars)
-- Outputs: `result.txt` (plain text) + `response.json` (metadata to `/metadata` endpoint)
-- Extracts token usage metadata (in/out counts, modalities, model version)
+Replaced the old `ollama`, `azure-ai` and `gemini-ai` adapters (MessyDesk `plan/llm-adapter.md`).
+Both run on `llm/core.mjs`, which does everything provider-neutral; the two files only build the
+provider request and read its answer.
 
-**Verified from:** `src/adapters/gemini-ai.mjs`
+- Started with `CONFIG_JSON_PATH` (see [environment-variables.md](environment-variables.md)): the
+  file's `service` block is registered, its `provider` block (URL, key env var name, model map,
+  retries) goes to the adapter's `configure()`, and its `help` markdown is sent to MessyDesk.
+- Prompt runs: the prompt text (`task.params.prompts.content`) is the system message, the file is
+  the user message (text, or the image as a data URL / inline data). `output_type: json` asks for
+  structured output with the prompt's `json_schema`, which may be a JSON Schema or an example
+  object (converted). The answer must parse as JSON, otherwise the job fails with the start of it.
+- `autotag` task: chooses tags from the given labels or existing tags (closed mode, enum-constrained
+  structured output) or suggests up to `max_tags` tags (open mode). Output
+  `{task, params, model, result: {category: [...]}}`, which MessyDesk turns into tags.
+- Input: no silent cutting. A text over the model's `max_input_tokens` (about 4 characters per
+  token) fails with a clear message. Images are converted to JPEG/PNG and scaled to the model's
+  `max_image_edge` (default 2048).
+- Params: `temperature` (left out for models with `"temperature": false`), `max_output_tokens`
+  (MessyDesk caps it with the service group's `per_job_max_output`).
+- Retries 429, 408, 409, 5xx and network errors in the adapter, honouring `Retry-After`; if they
+  keep failing the job is thrown back to the queue. 4xx answers and our own errors fail at once.
+- Output label `<original name>.txt` / `.json`; `response.json` to `/metadata` with model,
+  provider, tokens in/out/total, finish reason and retries (stored as a Usage row).
+- One job at a time per consumer. Run several consumers on the same `TOPIC` for parallel calls.
+- `llm-gemini` sends images inline (nothing is left in Google's file store).
 
-### azure-ai
-
-- Uses `openai` SDK's `AzureOpenAI` client
-- Supports structured JSON output via `response_format` with auto-generated JSON Schema
-- `createSchema()` converts simple JSON structures to proper JSON Schema (with `additionalProperties: false`)
-- Image input sent as base64 data URL
-- Text input limit: 2000 chars
-
-**Verified from:** `src/adapters/azure-ai.mjs`
-
-### ollama
-
-- Calls Ollama's HTTP API (`/api/chat` or `/api/generate`)
-- Supports vision models (base64 images in `images` field)
-- Supports structured JSON output via `format` parameter
-- Endpoint auto-detection: strips trailing path if already present
-- 120s request timeout
-- Output label inherits `original_filename` or `file.label` from input
-
-**Verified from:** `src/adapters/ollama.mjs`
+**Verified from:** `src/adapters/llm/core.mjs`, `src/adapters/llm-openai.mjs`,
+`src/adapters/llm-gemini.mjs`, `tests/llm.test.mjs`.
 
 ### elg / elg_fs (one adapter)
 

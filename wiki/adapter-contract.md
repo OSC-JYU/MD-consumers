@@ -69,8 +69,8 @@ Or use the helper: `withResponseTime(msg, startedAt)` from `funcs.mjs`.
 |---|---|---|
 | Output written to data/<db>/tmp + `/tmp` callback | `elg`/`elg_fs` | Downloaded from the service (or written there by it), reported by name |
 | File upload via multipart | `paddleocr` | Binary file streamed back |
-| Text file via content string | `gemini-ai`, `azure-ai`, `ollama`, `test` | Content sent as string, not file stream |
-| JSON metadata to `/metadata` endpoint | `gemini-ai`, `azure-ai`, `ollama` | AI response metadata (tokens, model) |
+| Text file via content string | `llm-openai`, `llm-gemini`, `test` | Content sent as string, not file stream |
+| JSON metadata to `/metadata` endpoint | `llm-openai`, `llm-gemini` | AI response metadata (tokens, model) |
 | Done signal without output | `solr`, `json-tagger` | Processing produces no output files |
 | Dual file output | AI adapters | Both `result.txt` and `response.json` emitted |
 

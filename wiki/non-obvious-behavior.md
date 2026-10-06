@@ -16,18 +16,19 @@ The service descriptor is re-fetched every 30 seconds during heartbeat. This mea
 
 **Verified from:** `src/index.mjs` heartbeat setInterval block.
 
-## 3. `service_url` Is Not Used by AI Adapters
+## 3. LLM Consumers Have No Service of Their Own
 
-For `gemini-ai`, the `service_url` parameter is essentially ignored — the adapter uses the Google SDK directly. The value still determines startup logic (service discovery, Nomad). For `azure-ai`, `service_url` is used as the Azure endpoint. This inconsistency means Gemini doesn't need a running "service" but the bootstrap still requires one to be discoverable.
+With `CONFIG_JSON_PATH` there is nothing to discover or start: `service_url` is the config's
+`provider.base_url` (or `DEV_URL`, or the placeholder `provider` for Gemini), the `/config` preflight
+is replaced by the adapter's `preflight()` (`GET {base_url}/models`), and help is pushed from the
+config's `help` file instead of being fetched by the backend.
 
-**Verified from:** `src/adapters/gemini-ai.mjs` (uses `@google/genai` SDK, not `service_url`).
-
-**Inferred:** Setting `DEV_URL=http://dummy` may be needed for Gemini to bypass service discovery.
+**Verified from:** `src/index.mjs` `configureAdapter()`, `pushServiceHelp()`.
 
 ## 4. `message.json()` Is a Shim
 
 The queue loop wraps the job payload as `{ json: () => job.payload }` (a leftover of the NATS API), so
-`message.json()` returns the payload object. (gemini-ai used to `JSON.parse` it again, which always failed.)
+`message.json()` returns the payload object. (The old gemini-ai adapter used to `JSON.parse` it again, which always failed.)
 
 **Verified from:** `src/index.mjs` main loop.
 

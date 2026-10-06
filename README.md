@@ -42,10 +42,13 @@ header, which the backend accepts only while its `SERVICE_AUTH_LEGACY_MAIL=true`
 
 ## Optional environment variables
 
-- `SERVICE_JSON_PATH`: Explicit path to service descriptor JSON (for example `../MessyDesk/services/md-azure-ai/service.json`).
+- `SERVICE_JSON_PATH`: Explicit path to service descriptor JSON (for example `../MD-hello-world/service.json`).
     - If set, this descriptor is used for registration metadata and overrides runtime `/config` metadata.
     - If not set, descriptor must be available from service `/config`.
     - Relative paths are resolved against current working directory, project root, and `/src`.
+- `CONFIG_JSON_PATH`: Service descriptor plus provider settings in one file, for providers the consumer calls
+  directly (LLMs). See `wiki/environment-variables.md` and the MD-llm repo for examples:
+  `CONFIG_JSON_PATH=../MD-llm/providers/ollama.json SERVICE_TOKEN=... node src/index.mjs`
 - `NOMAD_HCL_PATH`: Explicit path to Nomad job specification.
     - If set, consumer uses Nomad service discovery and tries to start the service via MessyDesk API.
 - `HELP_URL`: Explicit URL for service help ingestion source.

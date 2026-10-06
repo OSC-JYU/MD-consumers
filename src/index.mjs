@@ -24,7 +24,24 @@ import { startControlServer } from './server.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const TOPIC = process.env.TOPIC || null;
+// CONFIG_JSON_PATH: one file with the service descriptor and the adapter's provider settings,
+// for services the consumer calls directly, such as LLM providers (MessyDesk
+// plan/llm-adapter.md 4.3): { "service": {...}, "provider": {...}, "help": "help/index.md" }.
+// The descriptor is registered; the provider block never leaves the consumer.
+const CONFIG_JSON_PATH = process.env.CONFIG_JSON_PATH || null;
+const EFFECTIVE_CONFIG_JSON_PATH = CONFIG_JSON_PATH ? path.resolve(process.cwd(), CONFIG_JSON_PATH) : null;
+
+function readConfigJson() {
+  if (!EFFECTIVE_CONFIG_JSON_PATH) return null;
+  const config = JSON.parse(fs.readFileSync(EFFECTIVE_CONFIG_JSON_PATH, 'utf8'));
+  if (!config || typeof config !== 'object' || !config.service || typeof config.service !== 'object') {
+    throw new Error(`CONFIG_JSON_PATH ${EFFECTIVE_CONFIG_JSON_PATH} must have a "service" object`);
+  }
+  return config;
+}
+
+const CONFIG_JSON = readConfigJson();
+const TOPIC = process.env.TOPIC || CONFIG_JSON?.service?.id || null;
 const NOMAD_URL = process.env.NOMAD_URL || 'http://localhost:4646/v1';
 const MD_URL = process.env.MD_URL || 'http://localhost:8200';
 const DEV_URL = process.env.DEV_URL || null;
@@ -35,11 +52,12 @@ const CONTROL_PORT = Number(process.env.CONTROL_PORT || 0);
 
 const REGISTRATION_MAX_ATTEMPTS = Number(process.env.REGISTRATION_MAX_ATTEMPTS || 5);
 const REGISTRATION_INITIAL_DELAY_MS = Number(process.env.REGISTRATION_INITIAL_DELAY_MS || 500);
-const HAS_EXPLICIT_DESCRIPTOR_PATH = Boolean(SERVICE_JSON_PATH);
+const HAS_EXPLICIT_DESCRIPTOR_PATH = Boolean(SERVICE_JSON_PATH || CONFIG_JSON);
 
 const POLL_MIN_MS = Number(process.env.POLL_MIN_MS || 100);
 const POLL_MAX_MS = Number(process.env.POLL_MAX_MS || 2000);
 const REQUIRE_DEV_URL_UP = Boolean(DEV_URL)
+  && !CONFIG_JSON
   && !NOMAD_HCL_PATH_ENV
   && !['0', 'false', 'no', 'off'].includes(String(process.env.REQUIRE_DEV_URL_UP || 'true').toLowerCase());
 const DEV_URL_WAIT_MAX_MS = Number(process.env.DEV_URL_WAIT_MAX_MS || 10000);
@@ -197,6 +215,10 @@ async function resolveRequiredDescriptor({
   serviceUrl,
   waitForRuntime = false,
 }) {
+  if (CONFIG_JSON) {
+    // Re-read on every heartbeat, so model changes reach MessyDesk without a restart.
+    return { descriptor: readConfigJson().service, source: 'explicit-descriptor' };
+  }
   if (descriptorPath) {
     const resolved = await resolveDescriptorSourceChain({
       topic,
@@ -235,7 +257,23 @@ async function enrichDescriptorWithAdapter(descriptor, serviceUrl) {
   }
 }
 
+// Help that the consumer sends itself (CONFIG_JSON_PATH "help": a markdown file relative to the
+// config file), for providers the backend has no URL for.
+async function pushServiceHelp(serviceId, helpPath) {
+  const ingestUrl = `${MD_URL}/api/services/${serviceId}/help/ingest`;
+  const resolved = path.resolve(path.dirname(EFFECTIVE_CONFIG_JSON_PATH), helpPath);
+  try {
+    const content = fs.readFileSync(resolved, 'utf8');
+    await got.post(ingestUrl, { headers: mdHeaders(), json: { content } }).json();
+    console.log('service help sent:', serviceId, resolved);
+  } catch (error) {
+    const status = error?.response?.statusCode;
+    console.log(`WARN: sending service help failed for ${serviceId}${status ? ` (${status})` : ''}: ${error?.response?.body || error.message}`);
+  }
+}
+
 async function triggerServiceHelpIngest(serviceId, descriptor = null) {
+  if (CONFIG_JSON?.help && !HELP_URL) return pushServiceHelp(serviceId, CONFIG_JSON.help);
   const ingestUrl = `${MD_URL}/api/services/${serviceId}/help/ingest`;
   const configuredHelpUrl = HELP_URL || descriptor?.help_url || null;
   try {
@@ -401,7 +439,9 @@ async function main() {
   let adapter_name = process.env.ADAPTER || service_json.adapter || null;
 
   // --- Resolve service URL ---
-  let service_url = DEV_URL || await getServiceURL(NOMAD_URL, request_json, service_json, NOMAD_MODE);
+  // A provider called directly (CONFIG_JSON_PATH) has no service of ours to find or start.
+  const configUrl = CONFIG_JSON ? (CONFIG_JSON.provider?.base_url || DEV_URL || 'provider') : null;
+  let service_url = configUrl || DEV_URL || await getServiceURL(NOMAD_URL, request_json, service_json, NOMAD_MODE);
 
   const nomadHclPath = EFFECTIVE_NOMAD_HCL_PATH || await resolveNomadHclPath({
     descriptorPath: EFFECTIVE_SERVICE_JSON_PATH,
@@ -453,6 +493,7 @@ async function main() {
   }
 
   adapterModule = await import(`./adapters/${adapter_name}.mjs`);
+  if (CONFIG_JSON) await configureAdapter(adapterModule, service_json, service_url);
   service_json = await enrichDescriptorWithAdapter(service_json, service_url);
 
   await registerServiceDescriptorWithRetry({
@@ -588,6 +629,31 @@ async function main() {
       }
     } finally {
       clearInterval(heartbeatTimer);
+    }
+  }
+}
+
+// Hands the provider block to the adapter and checks that the provider answers.
+async function configureAdapter(module, descriptor, serviceUrl) {
+  if (typeof module.configure === 'function') {
+    await module.configure(CONFIG_JSON.provider || {}, descriptor, serviceUrl === 'provider' ? null : serviceUrl);
+  }
+  if (typeof module.preflight !== 'function') return;
+  const strict = !['0', 'false', 'no', 'off'].includes(String(process.env.REQUIRE_DEV_URL_UP || 'true').toLowerCase());
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await module.preflight();
+      console.log(`provider preflight ok for ${TOPIC}`);
+      return;
+    } catch (error) {
+      if (Date.now() - startedAt >= DEV_URL_WAIT_MAX_MS) {
+        const message = `provider preflight failed for ${TOPIC}: ${error.message}`;
+        if (strict) throw new Error(`${message}. Start the provider first, or set REQUIRE_DEV_URL_UP=false.`);
+        console.log(`WARN: ${message}`);
+        return;
+      }
+      await sleep(DEV_URL_WAIT_STEP_MS);
     }
   }
 }
