@@ -22,7 +22,7 @@
 | `NOMAD_HCL_PATH` | `null` | Explicit path to Nomad job spec file. Enables Nomad mode and overrides all other Nomad HCL path resolution. |
 | `SERVICE_JSON_PATH` | `null` | Explicit path to service descriptor JSON |
 | `SERVICE_DESCRIPTOR_PATH` | `null` | Alias for `SERVICE_JSON_PATH` |
-| `CONFIG_JSON_PATH` | `null` | For providers the consumer calls directly (LLM adapters): `{ "service": <descriptor>, "provider": {...}, "help": "<markdown path relative to the file>" }`. `service` is registered (re-read on every heartbeat), `provider` goes to the adapter only, `help` is sent to MessyDesk. `TOPIC` defaults to `service.id`. Replaces DEV_URL discovery and the `/config` preflight. |
+| `CONFIG_JSON_PATH` | `null` | For providers the consumer calls directly (LLM adapters): `{ "service": <descriptor>, "provider": {...}, "help": "<markdown path relative to the file>" }`. `service` is registered (re-read on every heartbeat), `provider` goes to the adapter only, `help` is sent to MessyDesk. `TOPIC` defaults to `service.id`; `DEV_URL` overrides `provider.base_url`. Replaces service discovery and the `/config` preflight. |
 
 ## Adapter
 

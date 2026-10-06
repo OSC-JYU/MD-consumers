@@ -4,7 +4,7 @@
 // keys only from the env var it names (`api_key_env`).
 //
 // provider: {
-//   name, base_url, api_key_env, auth_header ("authorization" | "api-key"), api_version,
+//   name, base_url (DEV_URL overrides it), api_key_env, auth_header ("authorization" | "api-key"), api_version,
 //   headers, model_map, timeout_ms, retry, store, strict_json,
 //   max_tokens_param ("max_tokens" | "max_completion_tokens"), json_mode ("schema" | "object")
 // }
@@ -17,7 +17,7 @@ let provider = { name: 'openai-compatible' };
 let client = null;
 
 export function createClient(config, serviceUrl) {
-  const baseURL = String(config.base_url || serviceUrl || '').replace(/\/+$/, '');
+  const baseURL = String(serviceUrl || config.base_url || '').replace(/\/+$/, '');
   if (!baseURL) throw new Error('llm-openai: provider.base_url (or DEV_URL) is required');
   const apiKey = apiKeyFrom(config) || 'none';
   const defaultHeaders = { ...(config.headers || {}) };

@@ -440,7 +440,8 @@ async function main() {
 
   // --- Resolve service URL ---
   // A provider called directly (CONFIG_JSON_PATH) has no service of ours to find or start.
-  const configUrl = CONFIG_JSON ? (CONFIG_JSON.provider?.base_url || DEV_URL || 'provider') : null;
+  // DEV_URL overrides the file's base_url, e.g. a container name instead of localhost.
+  const configUrl = CONFIG_JSON ? (DEV_URL || CONFIG_JSON.provider?.base_url || 'provider') : null;
   let service_url = configUrl || DEV_URL || await getServiceURL(NOMAD_URL, request_json, service_json, NOMAD_MODE);
 
   const nomadHclPath = EFFECTIVE_NOMAD_HCL_PATH || await resolveNomadHclPath({
