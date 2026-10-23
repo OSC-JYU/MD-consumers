@@ -63,6 +63,9 @@ provider request and read its answer.
     disk, without it they are downloaded through the API (`getFile`).
 - **Outputs**, by what the service answers:
   - `response.type = "disk"`, `response.files[]`: already in `data/<db>/tmp`, reported by name.
+  - `response.files[]` entry with `ref_file_rid` (plus `label`, `extension`, `type`): no file at all;
+    the backend creates a reference node sharing the bytes of that existing file (e.g. md-sharp
+    `OSD_rotate` when no rotation is needed).
   - `response.uri` (string or list, items with optional `label`, `type`, `thumb_name`,
     `page_number`): downloaded **straight into `data/<db>/tmp`** (temporary name, then rename) and
     reported by name. Labels follow the old rules (`label` gets the extension appended, an

@@ -94,6 +94,12 @@ export function serviceOutputs(serviceResult, msg) {
 
     if (Array.isArray(payload.files)) {
         for (const file of payload.files) {
+            if (file?.ref_file_rid && file.label) {
+                // The output shares the bytes of an existing file: nothing in tmp, the backend links it.
+                const extension = String(file.extension || extOf(file.label)).toLowerCase()
+                outputs.push({ reference: String(file.ref_file_rid), label: file.label, extension, type: file.type || inferOutputType(extension) })
+                continue
+            }
             if (!file || (!file.path && !file.label)) continue
             const ref = String(file.path || file.label)
             const label = file.label || path.basename(ref)
@@ -174,6 +180,7 @@ export function callbackMessage(msg, serviceResult, output, index, total, starte
         response: { ...(msg.response || {}), ...(serviceResult?.response || {}) },
     }
     if (inBatch) message.batch_total_files = parentTotal
+    if (output.reference) message.ref_file_rid = output.reference
     if (output.thumb_name) message.thumb_name = output.thumb_name
     else delete message.thumb_name
     delete message.response.files
@@ -185,7 +192,7 @@ export function callbackMessage(msg, serviceResult, output, index, total, starte
 
 async function reportTmpFile(message, tmpName) {
     await got.post(`${MD_URL}/api/nomad/process/files/tmp`, {
-        json: { message, tmp_path: tmpName },
+        json: tmpName ? { message, tmp_path: tmpName } : { message },
         headers: mdHeaders(),
     }).json()
 }
@@ -299,7 +306,7 @@ export async function process_msg(service_url, message) {
 
         for (let i = 0; i < outputs.length; i += 1) {
             const output = outputs[i]
-            const tmpName = output.url ? await downloadToTmp(service_url, output.url, msg) : output.tmpName
+            const tmpName = output.reference ? null : output.url ? await downloadToTmp(service_url, output.url, msg) : output.tmpName
             await reportTmpFile(callbackMessage(msg, serviceResult, output, i, outputs.length, startedAt), tmpName)
             sent += 1
         }

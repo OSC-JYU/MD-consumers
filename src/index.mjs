@@ -484,6 +484,7 @@ async function main() {
     waitForRuntime: true,
   });
   service_json = withTopicAsId(resolvedRegistration.descriptor);
+  console.log(service_json)
   const registrationSource = resolvedRegistration.source;
 
   if (!adapter_name && service_json?.adapter) {
