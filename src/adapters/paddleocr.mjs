@@ -8,9 +8,9 @@ import path from 'path';
 import probe from 'probe-image-size';
 
 import { 
-    getPlainText,
     getFile,
     sendError,
+    mdHeaders,
     withResponseTime
 } from '../funcs.mjs';
 
@@ -29,6 +29,7 @@ export async function process_msg(service_url, message) {
     } catch (e) {
         console.log('invalid message payload!', e.message)
         await sendError({}, {error: 'invalid message payload!'}, url_md)
+        return
     }
 
     try {
@@ -84,8 +85,6 @@ export async function process_msg(service_url, message) {
         // Save the processed results
         var dirname = uuidv4()
         const writepath = path.join('data', dirname)
-        //const plainText = getPlainText(processedResults)
-        //console.log(plainText)
         fs.writeFileSync(writepath, JSON.stringify(processedResults), 'utf8');
         console.log('File saved successfully.');
 
@@ -99,13 +98,14 @@ export async function process_msg(service_url, message) {
         const readStream_md = fs.createReadStream(writepath);
         const formData_md = new FormData();
         withResponseTime(msg, startedAt)
-        msg.file = {label:'ocr.json',  type: 'ocr.json', extension: 'json'}
+        // keep the source file's rid and project: the backend links the result to it
+        msg.file = {...msg.file, label:'ocr.json',  type: 'ocr.json', extension: 'json'}
         formData_md.append('content', readStream_md);
         formData_md.append('message', JSON.stringify(msg), {contentType: 'application/json', filename: 'message.json'});
 
         const postStream_md = got.stream.post(url_md, {
             body: formData_md,
-            headers: formData_md.getHeaders(),
+            headers: {...formData_md.getHeaders(), ...mdHeaders()},
         });
         
         await pipeline(postStream_md, new stream.PassThrough())
@@ -118,7 +118,7 @@ export async function process_msg(service_url, message) {
         console.log(error.code)
 
         console.error('paddleocr: Error reading, sending, or saving the image:', error.message);
-        sendError(msg, error, MD_URL)
+        await sendError(msg, error, MD_URL)
         
     }
 }

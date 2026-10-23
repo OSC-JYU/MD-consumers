@@ -154,6 +154,6 @@ export async function process_msg(service_url, message) {
     console.log(error.status);
     console.log(error.code);
     console.error('libretranslate_api: Error processing request:', error.message);
-    await sendError(msg, error.message, MD_URL);
+    await sendError(msg, error, MD_URL);
   }
 }

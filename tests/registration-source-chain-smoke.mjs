@@ -10,7 +10,6 @@ const result = await resolveDescriptorSourceChain({
   adapterName,
   mdUrl,
   serviceUrl,
-  user: 'local.user@localhost',
 });
 
 console.log('source:', result.source);

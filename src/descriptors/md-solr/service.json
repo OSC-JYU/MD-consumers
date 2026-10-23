@@ -8,14 +8,28 @@
     "description": "Solr",
     "tasks": {
         "index": {
-            "params": {},
+            "params": {
+                "index_mode": "full"
+            },
             "source": "source_file",
             "name": "Search index",
             "description": "Create a search index for the texts.",
             "supported_formats": [
                 "txt"
             ],
-            "behaviour": "many-to-one"
+            "behaviour": "many-to-one",
+            "params_help": {
+                "index_mode": {
+                    "name": "Matching",
+                    "display": "dropdown",
+                    "values": {
+                        "full": "Partial word match: finds parts of words too (index about 7× the text)",
+                        "light": "Whole word match: whole words only (index about the size of the text)"
+                    },
+                    "default": "full",
+                    "help": "Both find misspellings, such as OCR errors, when Fuzzy search is on."
+                }
+            }
         },
         "delete": {
             "params": {},

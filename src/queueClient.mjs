@@ -1,14 +1,14 @@
 import got from 'got';
 
-const DEFAULT_USER = 'local.user@localhost';
+import { mdHeaders } from './funcs.mjs';
 
 /**
  * HTTP client for backend queue API.
  * Consumers poll the backend to claim jobs and report status.
  */
-export function createQueueClient({ mdUrl, topic, adapterId, user = DEFAULT_USER }) {
+export function createQueueClient({ mdUrl, topic, adapterId }) {
 
-  const headers = { mail: user };
+  const headers = mdHeaders();
 
   async function claim() {
     const res = await got.post(`${mdUrl}/api/queue/claim`, {
@@ -32,11 +32,12 @@ export function createQueueClient({ mdUrl, topic, adapterId, user = DEFAULT_USER
     });
   }
 
+  // Resolves to the backend's answer: `permanent` is true when the job will not be retried.
   async function fail(jobId, error) {
-    await got.post(`${mdUrl}/api/queue/${jobId}/fail`, {
+    return got.post(`${mdUrl}/api/queue/${jobId}/fail`, {
       json: { error: error?.message || String(error), adapter_id: adapterId },
       headers,
-    });
+    }).json();
   }
 
   return { claim, heartbeat, complete, fail };

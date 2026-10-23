@@ -4,11 +4,9 @@
 
 | Adapter | File | Service type | Input types | Output |
 |---|---|---|---|---|
-| `gemini-ai` | `gemini-ai.mjs` | Google Gemini LLM | image, text | text + metadata JSON |
-| `azure-ai` | `azure-ai.mjs` | Azure OpenAI | image, text | text + metadata JSON |
-| `ollama` | `ollama.mjs` | Self-hosted LLM (Ollama) | image, text | text/JSON + metadata |
-| `elg` | `elg.mjs` | Generic HTTP service (file upload) | any | files from service store |
-| `elg_fs` | `elg_fs.mjs` | Generic HTTP service (disk mode) | any | tmp file references |
+| `llm-openai` | `llm-openai.mjs` + `llm/core.mjs` | Any OpenAI-compatible LLM: OpenAI, Azure OpenAI, Ollama, vLLM, LM Studio, LiteLLM | image, text | text/JSON or autotag JSON + metadata JSON |
+| `llm-gemini` | `llm-gemini.mjs` + `llm/core.mjs` | Google Gemini (native API) | image, text | text/JSON or autotag JSON + metadata JSON |
+| `elg`, `elg_fs` | `elg.mjs` | Generic `/process` service, disk or http storage | any | outputs written to data/<db>/tmp |
 | `solr` | `solr.mjs` | Solr search indexing | text (disk path) | done signal |
 | `paddleocr` | `paddleocr.mjs` | PaddleOCR | image | OCR JSON |
 | `poppler` | `poppler.mjs` | PDF processing | PDF | images/files |
@@ -20,58 +18,68 @@
 
 ## Adapter Details
 
-### gemini-ai
+### llm-openai and llm-gemini (LLM providers)
 
-- Uses `@google/genai` SDK directly (no HTTP proxy to a service)
-- `service_url` parameter is effectively unused (the SDK connects to Google's API)
-- For non-text files: uploads to Google's file manager, then creates multimodal prompt
-- For text files: reads content directly (hard limit: 4000 chars)
-- Outputs: `result.txt` (plain text) + `response.json` (metadata to `/metadata` endpoint)
-- Extracts token usage metadata (in/out counts, modalities, model version)
+Replaced the old `ollama`, `azure-ai` and `gemini-ai` adapters (MessyDesk `plan/llm-adapter.md`).
+Both run on `llm/core.mjs`, which does everything provider-neutral; the two files only build the
+provider request and read its answer.
 
-**Verified from:** `src/adapters/gemini-ai.mjs`
+- Started with `CONFIG_JSON_PATH` (see [environment-variables.md](environment-variables.md)): the
+  file's `service` block is registered, its `provider` block (URL, key env var name, model map,
+  retries) goes to the adapter's `configure()`, and its `help` markdown is sent to MessyDesk.
+- Prompt runs: the prompt text (`task.params.prompts.content`) is the system message, the file is
+  the user message (text, or the image as a data URL / inline data). `output_type: json` asks for
+  structured output with the prompt's `json_schema`, which may be a JSON Schema or an example
+  object (converted). The answer must parse as JSON, otherwise the job fails with the start of it.
+- `autotag` task: chooses tags from the given labels or existing tags (closed mode, enum-constrained
+  structured output) or suggests up to `max_tags` tags (open mode). Output
+  `{task, params, model, result: {category: [...]}}`, which MessyDesk turns into tags.
+- Input: no silent cutting. A text over the model's `max_input_tokens` (about 4 characters per
+  token) fails with a clear message. Images are converted to JPEG/PNG and scaled to the model's
+  `max_image_edge` (default 2048).
+- Params: `temperature` (left out for models with `"temperature": false`), `max_output_tokens`
+  (MessyDesk caps it with the service group's `per_job_max_output`).
+- Retries 429, 408, 409, 5xx and network errors in the adapter, honouring `Retry-After`; if they
+  keep failing the job is thrown back to the queue. 4xx answers and our own errors fail at once.
+- Output label `<original name>.txt` / `.json`; `response.json` to `/metadata` with model,
+  provider, tokens in/out/total, finish reason and retries (stored as a Usage row).
+- One job at a time per consumer. Run several consumers on the same `TOPIC` for parallel calls.
+- `llm-gemini` sends images inline (nothing is left in Google's file store).
 
-### azure-ai
+**Verified from:** `src/adapters/llm/core.mjs`, `src/adapters/llm-openai.mjs`,
+`src/adapters/llm-gemini.mjs`, `tests/llm.test.mjs`.
 
-- Uses `openai` SDK's `AzureOpenAI` client
-- Supports structured JSON output via `response_format` with auto-generated JSON Schema
-- `createSchema()` converts simple JSON structures to proper JSON Schema (with `additionalProperties: false`)
-- Image input sent as base64 data URL
-- Text input limit: 2000 chars
+### elg / elg_fs (one adapter)
 
-**Verified from:** `src/adapters/azure-ai.mjs`
+`elg_fs.mjs` re-exports `elg.mjs`; both names stay for existing descriptors.
 
-### ollama
-
-- Calls Ollama's HTTP API (`/api/chat` or `/api/generate`)
-- Supports vision models (base64 images in `images` field)
-- Supports structured JSON output via `format` parameter
-- Endpoint auto-detection: strips trailing path if already present
-- 120s request timeout
-- Output label inherits `original_filename` or `file.label` from input
-
-**Verified from:** `src/adapters/ollama.mjs`
-
-### elg (European Language Grid pattern)
-
-- Generic adapter for services following a common HTTP multipart protocol
-- Sends file + message JSON to `service_url/process`
-- Downloads result files from the service's output store
-- Supports batch input via ZIP (`getFilesZip` when `input_set` present)
-- Can forward source file if `msg.file.source` exists
+- Calls `service_url/process` with the message JSON (multipart field `message`).
+- **Storage of the service** comes from its `/config` (`adapter: elg_fs` or `storage_mode: disk`
+  = disk, anything else = http), cached for a minute:
+  - disk: only the message is sent; the service reads `message.file.path` and writes its outputs
+    to `data/<db>/tmp`.
+  - http: the input is uploaded as `content` (a set as ZIP via `getFilesZip` when `input_set` is
+    present), plus `source` when `msg.file.source` exists. With `MD_PATH` the inputs are read from
+    disk, without it they are downloaded through the API (`getFile`).
+- **Outputs**, by what the service answers:
+  - `response.type = "disk"`, `response.files[]`: already in `data/<db>/tmp`, reported by name.
+  - `response.files[]` entry with `ref_file_rid` (plus `label`, `extension`, `type`): no file at all;
+    the backend creates a reference node sharing the bytes of that existing file (e.g. md-sharp
+    `OSD_rotate` when no rotation is needed).
+  - `response.uri` (string or list, items with optional `label`, `type`, `thumb_name`,
+    `page_number`): downloaded **straight into `data/<db>/tmp`** (temporary name, then rename) and
+    reported by name. Labels follow the old rules (`label` gets the extension appended, an
+    unlabelled single output is named `<input label>.<ext>`, otherwise the file name is kept); the
+    type is the item's `type`, else guessed from the URL (`x.ocr.json` -> `ocr.json`).
+  - nothing: `/api/nomad/process/files/done` with `metadata` merged into the file.
+- Every output goes to `/api/nomad/process/files/tmp`; files are uploaded to the backend
+  (`/api/nomad/process/files`) only when `MD_PATH` is not set (warned once).
+- Errors are rethrown (the backend retries the job) unless some outputs were already reported;
+  then an error node is recorded instead, so a retry cannot duplicate outputs.
+- Needs `MD_PATH` (the MessyDesk root that contains `data/`, or `data/` itself) for the write
+  policy.
 
 **Verified from:** `src/adapters/elg.mjs`
-
-### elg_fs (Filesystem variant)
-
-- Similar to `elg` but does **not** download/upload files through consumer
-- Sends only the message JSON (no file content) to `service_url/process`
-- Service writes output to shared filesystem; consumer sends tmp-path references to MD
-- **Batch safety:** Checks batch status via `GET /api/batches/:rid` before each file callback
-- Respects `cancelled`, `cancelling`, `paused`, `done` states
-- Falls back to `/api/nomad/process/files/done` if service returns no files
-
-**Verified from:** `src/adapters/elg_fs.mjs`
 
 ### solr
 
@@ -109,7 +117,6 @@
 - Integrates with DSpace 7 repository API
 - `init` task: fetches metadata fields (Dublin Core only) and community/collection hierarchy
 - Export tasks send files to DSpace with metadata mapping
-- Uses `cld` library for language detection
 
 **Verified from:** `src/adapters/dspace7.mjs`
 

@@ -47,7 +47,7 @@ On `SIGINT`/`SIGTERM`:
 2. Clear heartbeat interval
 3. DELETE `/api/services/:topic/adapter/:adapter_id` (deregister)
 4. If this consumer started the service via Nomad startup path, request service stop
-5. DELETE `/api/services/:topic` (remove service registration)
+5. DELETE `/api/services/:topic` (remove service registration), only when no other consumer still serves the topic
 6. `process.exit()`
 
 **Verified from:** `src/index.mjs` `process.on('SIGINT', ...)`

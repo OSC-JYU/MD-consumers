@@ -67,15 +67,21 @@ Or use the helper: `withResponseTime(msg, startedAt)` from `funcs.mjs`.
 
 | Pattern | Used by | Description |
 |---|---|---|
-| File upload via multipart | `elg`, `paddleocr` | Binary file streamed back |
-| Text file via content string | `gemini-ai`, `azure-ai`, `ollama`, `test` | Content sent as string, not file stream |
-| JSON metadata to `/metadata` endpoint | `gemini-ai`, `azure-ai`, `ollama` | AI response metadata (tokens, model) |
-| Tmp-file reference (disk mode) | `elg_fs` | File paths sent as JSON, no upload |
+| Output written to data/<db>/tmp + `/tmp` callback | `elg`/`elg_fs` | Downloaded from the service (or written there by it), reported by name |
+| File upload via multipart | `paddleocr` | Binary file streamed back |
+| Text file via content string | `llm-openai`, `llm-gemini`, `test` | Content sent as string, not file stream |
+| JSON metadata to `/metadata` endpoint | `llm-openai`, `llm-gemini` | AI response metadata (tokens, model) |
 | Done signal without output | `solr`, `json-tagger` | Processing produces no output files |
 | Dual file output | AI adapters | Both `result.txt` and `response.json` emitted |
 
 ## Error Handling Invariant
 
-If `message.json()` throws (invalid payload), the adapter should still call `sendError` and return gracefully. The current implementation sends error but does not explicitly return — **execution falls through to the try block** in most adapters.
+- If `message.json()` throws (invalid payload), the adapter calls `sendError` and returns.
+- Most adapters catch their own errors, call `sendError` (one error node in the UI) and return, so the job
+  is completed and not retried.
+- `elg` and `test` rethrow instead: the consumer loop reports `/fail`, the backend retries the job, and after
+  the last attempt the loop calls `sendError` once.
+- `sendError(msg, error, url)` accepts `MD_URL` or the callback URL, sends `{error: {message, code, status,
+  details}, message}` and never throws.
 
-**Verified from:** All adapters follow this pattern; no early return after parse failure is a common code smell in the codebase.
+**Verified from:** `src/funcs.mjs` `sendError()`, `src/index.mjs` main loop.

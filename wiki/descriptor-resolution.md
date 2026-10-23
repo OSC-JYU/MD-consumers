@@ -99,7 +99,7 @@ After resolution, the descriptor is registered with MessyDesk:
 ```
 POST /api/services/register
 Body: { source: "<source_label>", service: <descriptor> }
-Header: mail: local.user@localhost
+Header: Authorization: Bearer <SERVICE_TOKEN>
 ```
 
 Registration uses exponential backoff retry (default: 5 attempts, 500ms initial delay, max 10s).

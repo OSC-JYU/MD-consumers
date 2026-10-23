@@ -20,7 +20,7 @@ MD-tesseract repository has nomad.hcl that tells how it can be run in Nomad. We 
 
 
     cd MD-consumers
-    TOPIC=md-tesseract NOMAD_HCL_PATH=/absolute/path/to/MD-tesseract/nomad.hcl node src/index.mjs
+    TOPIC=md-tesseract SERVICE_TOKEN=<token> NOMAD_HCL_PATH=/absolute/path/to/MD-tesseract/nomad.hcl node src/index.mjs
 
 This would start service container (md-tesseract) witn nomad and adapter code will register service to MessyDesk backend -> User can OCR images with Tesseract.
 
@@ -33,12 +33,22 @@ TODO: documentation
 
 
 
+## Authentication
+
+Set `SERVICE_TOKEN` to the same value as the backend's `SERVICE_TOKEN`. Every call to the backend sends
+`Authorization: Bearer <SERVICE_TOKEN>`; calls made for a user (file downloads, entity linking) also send
+`mail: <msg.userId>`. Without `SERVICE_TOKEN` the consumer falls back to the old `mail: local.user@localhost`
+header, which the backend accepts only while its `SERVICE_AUTH_LEGACY_MAIL=true`.
+
 ## Optional environment variables
 
-- `SERVICE_JSON_PATH`: Explicit path to service descriptor JSON (for example `../MessyDesk/services/md-azure-ai/service.json`).
+- `SERVICE_JSON_PATH`: Explicit path to service descriptor JSON (for example `../MD-hello-world/service.json`).
     - If set, this descriptor is used for registration metadata and overrides runtime `/config` metadata.
     - If not set, descriptor must be available from service `/config`.
     - Relative paths are resolved against current working directory, project root, and `/src`.
+- `CONFIG_JSON_PATH`: Service descriptor plus provider settings in one file, for providers the consumer calls
+  directly (LLMs). See `wiki/environment-variables.md` and the MD-llm repo for examples:
+  `CONFIG_JSON_PATH=../MD-llm/providers/ollama.json SERVICE_TOKEN=... node src/index.mjs`
 - `NOMAD_HCL_PATH`: Explicit path to Nomad job specification.
     - If set, consumer uses Nomad service discovery and tries to start the service via MessyDesk API.
 - `HELP_URL`: Explicit URL for service help ingestion source.
