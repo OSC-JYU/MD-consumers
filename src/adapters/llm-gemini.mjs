@@ -11,13 +11,25 @@ import { apiKeyFrom, runJob } from './llm/core.mjs';
 
 let provider = { name: 'gemini' };
 let ai = null;
+// api_key_source "user": every run brings the user's own key; the env var is not used.
+let userKeys = false;
+let topic = null;
+let configured = false;
+
+function createClient(apiKey) {
+  return new GoogleGenAI({ vertexai: false, apiKey, httpOptions: { timeout: Number(provider.timeout_ms) || 120000 } });
+}
 
 /** Called once by the consumer with the config's provider block. */
 export function configure(config = {}, descriptor = null) {
   provider = { ...config, name: config.name || descriptor?.id || 'gemini' };
+  userKeys = descriptor?.api_key_source === 'user';
+  topic = descriptor?.id || null;
+  configured = true;
+  if (userKeys) return;
   const apiKey = apiKeyFrom(provider, 'GOOGLE_API_KEY');
   if (!apiKey) throw new Error(`llm-gemini: set ${provider.api_key_env || 'GOOGLE_API_KEY'}`);
-  ai = new GoogleGenAI({ vertexai: false, apiKey, httpOptions: { timeout: Number(provider.timeout_ms) || 120000 } });
+  ai = createClient(apiKey);
 }
 
 /** generateContent arguments for a core.mjs request. */
@@ -49,8 +61,10 @@ export function fromGemini(response) {
   };
 }
 
-export async function generate(request) {
-  return fromGemini(await ai.models.generateContent(geminiRequest(request)));
+export async function generate(request, { apiKey = null } = {}) {
+  // A client per job when the key is the user's: it is never stored and is dropped with the job.
+  const caller = apiKey ? createClient(apiKey) : ai;
+  return fromGemini(await caller.models.generateContent(geminiRequest(request)));
 }
 
 export async function preflight() {
@@ -58,6 +72,6 @@ export async function preflight() {
 }
 
 export async function process_msg(service_url, message) {
-  if (!ai) configure({});
-  await runJob(message, { generate, provider });
+  if (!configured) configure({});
+  await runJob(message, { generate, provider, userKeys, topic });
 }

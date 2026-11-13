@@ -13,6 +13,7 @@ import { promises as fs } from 'fs';
 import sharp from 'sharp';
 
 import {
+  getApiKey,
   getFile,
   sendTextFile,
   sendJSONFile,
@@ -331,15 +332,35 @@ export const httpIo = {
   sendJson: (filedata, msg) => sendJSONFile(filedata, msg, `${MD_URL}/api/nomad/process/files`),
   sendMetadata: (filedata, msg) => sendJSONFile(filedata, msg, `${MD_URL}/api/nomad/process/files/metadata`),
   sendError: (msg, error) => sendError(msg, error, MD_URL),
+  getApiKey: (msg, topic) => getApiKey(MD_URL, msg.task.secret_ref, msg.userId, topic),
 };
+
+/** `text` with every occurrence of the user's key blanked out. */
+export function redact(text, apiKey) {
+  const value = String(text ?? '');
+  return apiKey ? value.split(apiKey).join('***') : value;
+}
+
+/**
+ * A copy of an error that is safe to log and report: the user's key is blanked out of its message
+ * and nothing else of the original (stack, request, response) is carried along.
+ */
+export function scrubError(error, apiKey) {
+  const safe = new Error(redact(error?.message, apiKey));
+  for (const field of ['status', 'statusCode', 'code', 'permanent', 'fromProvider']) {
+    if (error?.[field] !== undefined && typeof error[field] !== 'object') safe[field] = error[field];
+  }
+  return safe;
+}
 
 /**
  * Runs one job. Permanent failures (bad prompt, text too long, invalid JSON, 4xx from the
  * provider) are reported as the job's error; transient ones that survive the retries are thrown,
  * so the queue retries the job later.
  */
-export async function runJob(message, { generate, provider, io = httpIo, log = console.log }) {
+export async function runJob(message, { generate, provider, userKeys = false, topic = null, io = httpIo, log = console.log }) {
   const startedAt = process.hrtime();
+  let apiKey = null;
   let msg;
   try {
     msg = message.json();
@@ -351,6 +372,7 @@ export async function runJob(message, { generate, provider, io = httpIo, log = c
     if (!msg?.file?.['@rid']) throw new PermanentError('No file found in message');
     const kind = inputKind(msg.file);
     const { model } = providerModel(msg.task, provider);
+    if (userKeys) apiKey = await userApiKey(msg, io, topic);
     const buffer = await io.readInput(msg);
     const input = { kind };
     if (kind === 'image') {
@@ -362,12 +384,17 @@ export async function runJob(message, { generate, provider, io = httpIo, log = c
     }
     const request = buildRequest(msg, input, provider);
     const retry = provider?.retry || {};
-    const { value: result, retries } = await withRetry(() => generate(request), {
-      maxAttempts: Number(retry.max_attempts) || 4,
+    const maxAttempts = Number(retry.max_attempts) || 4;
+    const { value: result, retries } = await withRetry(() => generate(request, { apiKey }), {
+      maxAttempts,
       initialDelayMs: Number(retry.initial_delay_ms) || 1000,
-      onRetry: (error, attempt, wait) => log(`${provider?.name || 'llm'}: attempt ${attempt} failed (${errorStatus(error) || error.message}), retrying in ${wait} ms`),
+      onRetry: (error, attempt, wait) => log(`${provider?.name || 'llm'}: attempt ${attempt} failed (${errorStatus(error) || redact(error.message, apiKey)}), retrying in ${wait} ms`),
     }).catch((error) => {
       error.fromProvider = true;
+      if (isRetryable(error)) {
+        error.retriesExhausted = true;
+        error.attempts = maxAttempts;
+      }
       throw error;
     });
 
@@ -394,10 +421,39 @@ export async function runJob(message, { generate, provider, io = httpIo, log = c
     await io.sendMetadata({ label: 'response.json', content: { metadata, raw: result.raw ?? null }, type: 'response', ext: 'json' }, msg);
   } catch (error) {
     // Only provider failures are worth another try later; our own (bad image, bad prompt) are not.
-    if (error?.fromProvider && isRetryable(error)) throw error;
-    log(`${provider?.name || 'llm'}: ${error.message}`);
-    await io.sendError(msg, error);
+    // What leaves here is scrubbed of the user's key: errors are logged and sent to MessyDesk.
+    const safe = apiKey ? scrubError(error, apiKey) : error;
+    // `retry.requeue: false`: once the provider has not answered after its own attempts, report the
+    // error to the user instead of letting the queue try the whole job again (several times over).
+    const giveUp = error?.retriesExhausted && provider?.retry?.requeue === false;
+    if (giveUp) {
+      const status = errorStatus(error);
+      safe.message = `${provider?.name || 'The provider'} did not succeed after ${error.attempts} attempts${status ? ` (status ${status})` : ''}: ${safe.message}`;
+    } else if (error?.fromProvider && isRetryable(error)) throw safe;
+    log(`${provider?.name || 'llm'}: ${safe.message}`);
+    await io.sendError(msg, safe);
   }
+}
+
+/**
+ * The user's own key for this job, fetched from MessyDesk by the ref in the task. The ref is then
+ * removed from the message so that it is not echoed back with the results.
+ */
+async function userApiKey(msg, io, topic) {
+  if (!msg.task?.secret_ref) {
+    throw new PermanentError('This provider needs your own API key, but none came with the run. Start the run again and enter your key.');
+  }
+  let key;
+  try {
+    key = await io.getApiKey(msg, topic);
+  } catch (error) {
+    // MessyDesk did not answer: worth another try later, unlike a key that is gone.
+    error.fromProvider = true;
+    throw error;
+  }
+  delete msg.task.secret_ref;
+  if (!key) throw new PermanentError('Your API key is no longer available (MessyDesk restarted or the run waited too long). Start the run again and enter your key.');
+  return key;
 }
 
 /** Reads the API key from the env var the provider config names. */

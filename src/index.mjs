@@ -37,6 +37,10 @@ function readConfigJson() {
   if (!config || typeof config !== 'object' || !config.service || typeof config.service !== 'object') {
     throw new Error(`CONFIG_JSON_PATH ${EFFECTIVE_CONFIG_JSON_PATH} must have a "service" object`);
   }
+  // API_KEY_MODE=service|user overrides the file's `service.api_key_source`: "user" asks every user for
+  // their own key when they start a run, "service" uses the key of the env var (local development).
+  const keyMode = String(process.env.API_KEY_MODE || '').trim().toLowerCase();
+  if (keyMode === 'user' || keyMode === 'service') config.service.api_key_source = keyMode;
   return config;
 }
 
@@ -578,7 +582,55 @@ async function main() {
 
   let backoff = POLL_MIN_MS;
 
+  // An adapter that batches its work (roihu) holds many claimed jobs at once and says how many in
+  // maxConcurrentJobs(). Every other adapter handles one job at a time, as before.
+  const maxInFlight = Math.max(1, Number(typeof adapterModule.maxConcurrentJobs === 'function' ? adapterModule.maxConcurrentJobs() : 1) || 1);
+  const inFlight = new Set();
+
+  // Runs one claimed job to the end; never throws.
+  async function runJob(job) {
+    // Heartbeat for this specific job (extend lease)
+    const heartbeatTimer = setInterval(async () => {
+      try {
+        await queueClient.heartbeat(job.id);
+      } catch (e) {
+        console.log(`job heartbeat failed for ${job.id}:`, e.message);
+        // 404: the backend no longer lists the job as ours, for example the batch was cancelled
+        if (e?.response?.statusCode === 404 && typeof adapterModule.jobLost === 'function') {
+          clearInterval(heartbeatTimer);
+          adapterModule.jobLost(job.id);
+        }
+      }
+    }, 40_000);
+
+    // Adapters report their own failures with sendError and return normally. An adapter that
+    // throws gets the job retried by the backend; after the last attempt the error is recorded
+    // here so the user sees an error node.
+    try {
+      const m = { json: () => job.payload, jobId: job.id, attempt: job.attempts, maxAttempts: job.max_attempts };
+      await process_msg(service_url, m);
+      await queueClient.complete(job.id);
+    } catch (e) {
+      console.log(`ERROR processing job ${job.id}:`, e.message);
+      try {
+        const result = await queueClient.fail(job.id, e);
+        if (result?.permanent) {
+          await sendError(job.payload, e, MD_URL);
+        }
+      } catch (fe) {
+        console.log('fail report error:', fe.message);
+      }
+    } finally {
+      clearInterval(heartbeatTimer);
+    }
+  }
+
   while (!stopped) {
+    if (inFlight.size >= maxInFlight) {
+      await Promise.race(inFlight);
+      continue;
+    }
+
     let job = null;
     try {
       job = await queueClient.claim();
@@ -603,35 +655,12 @@ async function main() {
     batchRunner.reset();
     batchRunner.setCurrentJob(job.id);
 
-    // Heartbeat for this specific job (extend lease)
-    const heartbeatTimer = setInterval(async () => {
-      try {
-        await queueClient.heartbeat(job.id);
-      } catch (e) {
-        console.log(`job heartbeat failed for ${job.id}:`, e.message);
-      }
-    }, 40_000);
-
-    // Adapters report their own failures with sendError and return normally. An adapter that
-    // throws gets the job retried by the backend; after the last attempt the error is recorded
-    // here so the user sees an error node.
-    try {
-      const m = { json: () => job.payload };
-      await process_msg(service_url, m);
-      await queueClient.complete(job.id);
-    } catch (e) {
-      console.log(`ERROR processing job ${job.id}:`, e.message);
-      try {
-        const result = await queueClient.fail(job.id, e);
-        if (result?.permanent) {
-          await sendError(job.payload, e, MD_URL);
-        }
-      } catch (fe) {
-        console.log('fail report error:', fe.message);
-      }
-    } finally {
-      clearInterval(heartbeatTimer);
+    if (maxInFlight === 1) {
+      await runJob(job);
+      continue;
     }
+    const running = runJob(job).finally(() => inFlight.delete(running));
+    inFlight.add(running);
   }
 }
 
@@ -641,6 +670,10 @@ async function configureAdapter(module, descriptor, serviceUrl) {
     await module.configure(CONFIG_JSON.provider || {}, descriptor, serviceUrl === 'provider' ? null : serviceUrl);
   }
   if (typeof module.preflight !== 'function') return;
+  if (descriptor?.api_key_source === 'user') {
+    console.log(`provider preflight skipped for ${TOPIC}: every user brings their own API key`);
+    return;
+  }
   const strict = !['0', 'false', 'no', 'off'].includes(String(process.env.REQUIRE_DEV_URL_UP || 'true').toLowerCase());
   const startedAt = Date.now();
   for (;;) {

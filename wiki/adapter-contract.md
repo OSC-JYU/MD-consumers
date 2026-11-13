@@ -74,6 +74,18 @@ Or use the helper: `withResponseTime(msg, startedAt)` from `funcs.mjs`.
 | Done signal without output | `solr`, `json-tagger` | Processing produces no output files |
 | Dual file output | AI adapters | Both `result.txt` and `response.json` emitted |
 
+## Optional exports
+
+| Export | Used by `index.mjs` |
+|---|---|
+| `configure(provider, descriptor, serviceUrl)`, `preflight()` | with `CONFIG_JSON_PATH`: once at start-up (`preflight` is retried for `DEV_URL_WAIT_MAX_MS`) |
+| `maxConcurrentJobs()` | The consumer claims up to this many jobs and runs `process_msg` for all of them at once. Without it, one job at a time. For adapters that batch jobs (`roihu`) |
+| `jobLost(jobId)` | Called when the heartbeat of a job gets 404: the backend no longer lists the job as ours (for example its batch was cancelled) |
+
+`message` has `json()` and also `jobId`, `attempt` and `maxAttempts` of the queue job.
+
+**Verified from:** `src/index.mjs` (`runJob`), `tests/main-loop.test.mjs`.
+
 ## Error Handling Invariant
 
 - If `message.json()` throws (invalid payload), the adapter calls `sendError` and returns.
