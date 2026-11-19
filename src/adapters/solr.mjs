@@ -145,6 +145,9 @@ async function updateTagsForNode(service_url, node_rid, tagFields) {
         merged.tag_rid = tagFields.tag_rid || []
         merged.tag_created_by = tagFields.tag_created_by || []
         merged.tag_confidence = tagFields.tag_confidence || []
+        // Tags of coded passages, one entry per tag however many passages have it
+        merged.passage_tag_label = tagFields.passage_tag_label || []
+        merged.passage_tag_rid = tagFields.passage_tag_rid || []
         updates.push(merged)
     }
     if(!updates.length) return {updated: 0}
