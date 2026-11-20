@@ -15,11 +15,16 @@ import { apiKeyFrom, runJob } from './llm/core.mjs';
 
 let provider = { name: 'openai-compatible' };
 let client = null;
+let baseUrl = null;
+// api_key_source "user": every run brings the user's own key; the env var is not used.
+let userKeys = false;
+let topic = null;
 
-export function createClient(config, serviceUrl) {
+/** `apiKey` overrides the key of the env var: the user's own key for one job. */
+export function createClient(config, serviceUrl, apiKeyOverride = null) {
   const baseURL = String(serviceUrl || config.base_url || '').replace(/\/+$/, '');
   if (!baseURL) throw new Error('llm-openai: provider.base_url (or DEV_URL) is required');
-  const apiKey = apiKeyFrom(config) || 'none';
+  const apiKey = apiKeyOverride || apiKeyFrom(config) || 'none';
   const defaultHeaders = { ...(config.headers || {}) };
   if (String(config.auth_header || '').toLowerCase() === 'api-key') defaultHeaders['api-key'] = apiKey;
   const defaultQuery = config.api_version ? { 'api-version': config.api_version } : undefined;
@@ -37,7 +42,10 @@ export function createClient(config, serviceUrl) {
 /** Called once by the consumer with the config's provider block. */
 export function configure(config = {}, descriptor = null, serviceUrl = null) {
   provider = { ...config, name: config.name || descriptor?.id || 'openai-compatible' };
-  client = createClient(provider, serviceUrl);
+  userKeys = descriptor?.api_key_source === 'user';
+  topic = descriptor?.id || null;
+  baseUrl = serviceUrl;
+  client = createClient(provider, serviceUrl, userKeys ? 'none' : null);
 }
 
 /** Chat Completions body for a core.mjs request. */
@@ -90,8 +98,10 @@ export function fromCompletion(completion) {
   };
 }
 
-export async function generate(request) {
-  const completion = await client.chat.completions.create(chatBody(request));
+export async function generate(request, { apiKey = null } = {}) {
+  // A client per job when the key is the user's: it is never stored and is dropped with the job.
+  const caller = apiKey ? createClient(provider, baseUrl, apiKey) : client;
+  const completion = await caller.chat.completions.create(chatBody(request));
   return fromCompletion(completion);
 }
 
@@ -102,5 +112,5 @@ export async function preflight() {
 
 export async function process_msg(service_url, message) {
   if (!client) configure({ base_url: service_url, api_key_env: 'OPENAI_API_KEY' }, null, service_url);
-  await runJob(message, { generate, provider });
+  await runJob(message, { generate, provider, userKeys, topic });
 }

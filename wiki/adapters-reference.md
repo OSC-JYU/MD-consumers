@@ -6,6 +6,7 @@
 |---|---|---|---|---|
 | `llm-openai` | `llm-openai.mjs` + `llm/core.mjs` | Any OpenAI-compatible LLM: OpenAI, Azure OpenAI, Ollama, vLLM, LM Studio, LiteLLM | image, text | text/JSON or autotag JSON + metadata JSON |
 | `llm-gemini` | `llm-gemini.mjs` + `llm/core.mjs` | Google Gemini (native API) | image, text | text/JSON or autotag JSON + metadata JSON |
+| `roihu` | `roihu.mjs` + `hpc/firecrest.mjs`, `hpc/s3.mjs` | A model run as a Slurm job on CSC's Roihu supercomputer (FirecREST + Allas) | image | text and PAGE XML per page |
 | `elg`, `elg_fs` | `elg.mjs` | Generic `/process` service, disk or http storage | any | outputs written to data/<db>/tmp |
 | `solr` | `solr.mjs` | Solr search indexing | text (disk path) | done signal |
 | `paddleocr` | `paddleocr.mjs` | PaddleOCR | image | OCR JSON |
@@ -48,6 +49,52 @@ provider request and read its answer.
 
 **Verified from:** `src/adapters/llm/core.mjs`, `src/adapters/llm-openai.mjs`,
 `src/adapters/llm-gemini.mjs`, `tests/llm.test.mjs`.
+
+### roihu (Slurm jobs on CSC's Roihu supercomputer)
+
+Runs a model as a batch job on a supercomputer. The first pipeline is `nafrec` (historical
+handwriting/print recognition); the service lives in the MD-roihu-slurm repository, which plays the
+part a service repository normally does (config, job script, help), as MD-llm does for the LLMs.
+
+- Started with `CONFIG_JSON_PATH=../MD-roihu-slurm/services/htr-nafrec.json`. Two modes, by the descriptor's
+  `api_key_source`: **user** (default in the config): every run brings its own FirecREST token and CSC project (and an
+  Allas project when different), typed in the UI form (`service.credentials` defines it), kept by the backend's
+  vault and fetched with the task's `secret_ref`. The Allas keys are not asked: they are read from the user's own
+  `~/.config/rclone/rclone.conf` on Roihu through FirecREST (the user ran `allas-conf` there once), and the job uses
+  that same config and gets no copy. **service** (`API_KEY_MODE=service`, local use): one
+  account from `.env` (see [environment-variables.md](environment-variables.md)). In user mode nothing is
+  configured in the environment and nothing of the credentials is written to disk or a log.
+- The environment and models are installed in the project's own `/scratch/{project}/...` on the first run (a
+  setup job, once per directory). `npm run roihu -- check|setup <config>` does the same by hand in service mode.
+- **Batching.** It holds many queue jobs at once (`maxConcurrentJobs()`, default 600) and groups the
+  jobs of one process (`set_process`). A group is flushed when the batch is complete
+  (`total_files` seen), when it reaches `batching.max_pages` (300), or when no new job has arrived
+  for `gather_seconds` (8). Every group is one Slurm job: a model needs one to three minutes to start,
+  so one process per page would be useless.
+- **Data.** The images go to Allas (S3, bucket `project-<n>-md-roihu`) under `<topic>/<run>/in/p0001.png`;
+  the job on Roihu pulls them, and pushes every finished page to `<run>/out/...`; `out/status.json`
+  is written last. The consumer polls Allas (`poll_seconds`, 15) and downloads each page when all
+  `required` outputs exist, then reports it with the same `/files/tmp` callback as `elg`. Allas is
+  emptied when the job is over (`keep_data` keeps it).
+- **Outputs** come from `provider.pipeline.outputs`: `{ path, label, extension, type, on_empty? }`.
+  A page the model found no text on (status `empty`) gets the outputs that have `on_empty`
+  (an empty text file), a failed page is rejected so that the queue retries it.
+- **Failures.** A Slurm job that ends without `status.json` rejects its pages with the Slurm state,
+  reason and the last lines of its log. An expired FirecREST token does not fail anything: the
+  pages stay claimed until a new token is in place (read again from `FIRECREST_TOKEN_FILE` on every
+  call); results already in Allas are still collected without it.
+- **Cancel.** index.mjs calls `jobLost(jobId)` when a job heartbeat gets 404 (the batch was
+  cancelled); when every page of a run is gone the Slurm job is cancelled with `scancel`.
+- **Restart.** Each run is kept in `data/roihu-state.json` (`ROIHU_STATE_PATH`): file -> Slurm job.
+  A job claimed again after a restart joins the existing Slurm job (if it still runs or
+  completed) instead of starting another.
+- The consumer must run where it can read `MD_PATH` (it reads input images from the data
+  directory and writes results to `data/<db>/tmp`).
+- Generic on purpose: the model is whatever `pipeline.script` does. Another model is another config
+  file and job script, not another adapter.
+
+**Verified from:** `src/adapters/roihu.mjs`, `src/hpc/*.mjs`, `tests/roihu.test.mjs`,
+`tests/main-loop.test.mjs`; design in MessyDesk `wiki/proposals/Roihu-slurm.md`.
 
 ### elg / elg_fs (one adapter)
 

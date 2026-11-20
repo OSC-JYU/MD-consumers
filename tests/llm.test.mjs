@@ -240,3 +240,93 @@ test('llm-gemini: inline image, system instruction and JSON schema', () => {
   assert.deepEqual(parsed.usage, { in: 4, out: 5, total: 9 });
   assert.equal(parsed.finishReason, 'STOP');
 });
+
+// ---- the user's own API key (api_key_source: "user") ---------------------------------------------
+
+const USER_KEY = 'sk-user-SECRET-0987654321';
+const keyed = (ref = 'ref-1') => job({ id: 'p', model: { id: 'm' }, params: { prompts: { content: 'Say hi' } }, secret_ref: ref });
+
+test('user key: fetched per job, passed to generate, ref dropped from the message', async () => {
+  const { sent, io } = fakeIo('Some text');
+  io.getApiKey = async (msg, topic) => {
+    assert.equal(msg.task.secret_ref, 'ref-1');
+    assert.equal(topic, 'md-llm-openai');
+    return USER_KEY;
+  };
+  let received = null;
+  const generate = async (request, options) => { received = options; return { text: 'Hi', usage: { in: 1, out: 1, total: 2 }, raw: {} }; };
+  await runJob(keyed(), { generate, provider: { name: 'p' }, userKeys: true, topic: 'md-llm-openai', io, log: () => {} });
+  assert.equal(received.apiKey, USER_KEY);
+  assert.equal(sent.text.length, 1);
+  assert.equal(sent.text[0].m.task.secret_ref, undefined);
+  assert.ok(!JSON.stringify(sent).includes(USER_KEY));
+});
+
+test('user key: a run without a ref or with a gone key fails with a clear message and calls no provider', async () => {
+  let called = false;
+  const generate = async () => { called = true; return { text: 'x', usage: {}, raw: {} }; };
+  const none = fakeIo('x');
+  await runJob(job({ id: 'p', model: { id: 'm' }, params: { prompts: { content: 'p' } } }), { generate, provider: {}, userKeys: true, io: none.io, log: () => {} });
+  assert.match(none.sent.errors[0], /needs your own API key/);
+
+  const gone = fakeIo('x');
+  gone.io.getApiKey = async () => null;
+  await runJob(keyed(), { generate, provider: {}, userKeys: true, io: gone.io, log: () => {} });
+  assert.match(gone.sent.errors[0], /no longer available/);
+  assert.equal(called, false);
+});
+
+test('user key: errors and logs never carry the key, a provider outage is still retried', async () => {
+  const logs = [];
+  const leaky = async () => { throw Object.assign(new Error(`401 bad key ${USER_KEY}`), { status: 401, response: { body: USER_KEY } }); };
+  const rejected = fakeIo('x');
+  rejected.io.getApiKey = async () => USER_KEY;
+  await runJob(keyed(), { generate: leaky, provider: { name: 'p' }, userKeys: true, io: rejected.io, log: (line) => logs.push(line) });
+  assert.match(rejected.sent.errors[0], /bad key \*\*\*/);
+  assert.ok(![rejected.sent, logs].some((value) => JSON.stringify(value).includes(USER_KEY)));
+
+  const down = fakeIo('x');
+  down.io.getApiKey = async () => USER_KEY;
+  const outage = async () => { throw Object.assign(new Error(`503 ${USER_KEY}`), { status: 503, headers: { 'retry-after': '0' } }); };
+  await assert.rejects(
+    runJob(keyed(), { generate: outage, provider: { retry: { max_attempts: 2 } }, userKeys: true, io: down.io, log: (line) => logs.push(line) }),
+    (error) => !error.message.includes(USER_KEY) && error.status === 503 && !('response' in error),
+  );
+  assert.ok(!JSON.stringify(logs).includes(USER_KEY));
+});
+
+test('llm-openai: the user key is sent as that job\'s bearer token, never the env key', async () => {
+  process.env.TEST_LLM_ENV_KEY = 'env-key-must-not-be-used';
+  const server = await fakeOpenAi(() => [200, {
+    id: 'c1', object: 'chat.completion', model: 'm',
+    choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  }]);
+  try {
+    openaiAdapter.configure({ base_url: server.url, api_key_env: 'TEST_LLM_ENV_KEY' }, { id: 'md-llm-openai', api_key_source: 'user' });
+    const request = buildRequest({ task: { id: 'p', model: { id: 'm' }, params: { prompts: { content: 'Hi' } } } }, { kind: 'text', text: 'T' }, {});
+    await openaiAdapter.generate(request, { apiKey: USER_KEY });
+    const sent = server.requests.find((r) => r.url.startsWith('/v1/chat/completions'));
+    assert.equal(sent.headers.authorization, `Bearer ${USER_KEY}`);
+  } finally {
+    await server.close();
+  }
+});
+
+test('retry.requeue false: a provider that stays down is reported to the user, not retried by the queue', async () => {
+  let calls = 0;
+  const outage = async () => { calls += 1; throw Object.assign(new Error('high demand'), { status: 503, headers: { 'retry-after': '0' } }); };
+  const quits = fakeIo('x');
+  await runJob(job({ id: 'p', model: { id: 'm' }, params: { prompts: { content: 'p' } } }), {
+    generate: outage, provider: { name: 'md-llm-gemini', retry: { max_attempts: 2, requeue: false } }, io: quits.io, log: () => {},
+  });
+  assert.equal(calls, 2);
+  assert.match(quits.sent.errors[0], /md-llm-gemini did not succeed after 2 attempts \(status 503\): high demand/);
+
+  // default: thrown, so that the queue tries the job again later
+  const down = fakeIo('x');
+  await assert.rejects(runJob(job({ id: 'p', model: { id: 'm' }, params: { prompts: { content: 'p' } } }), {
+    generate: outage, provider: { retry: { max_attempts: 2 } }, io: down.io, log: () => {},
+  }), /high demand/);
+  assert.equal(down.sent.errors.length, 0);
+});

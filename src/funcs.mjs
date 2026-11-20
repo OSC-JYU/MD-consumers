@@ -432,6 +432,24 @@ async function sendFile(filedata, message, md_url) {
     console.log('File not streamed')
 }
 
+// Trades a task's `secret_ref` for the API key the user gave when starting the run. The key is
+// kept in the backend's memory only; it must not be logged or written anywhere here either, which
+// is why failures report a status and never the response. Returns null when the key is gone.
+export async function getApiKey(mdUrl, ref, userId, topic) {
+  try {
+    const response = await got.post(backendRoot(mdUrl) + '/api/queue/secret', {
+      json: { ref, user: userId, topic },
+      headers: mdHeaders(),
+      responseType: 'json',
+      timeout: { request: 15000 },
+    })
+    return response.body?.key || null
+  } catch (e) {
+    if (e?.response?.statusCode === 404) return null
+    throw new Error(`could not fetch the API key from MessyDesk (${e?.response?.statusCode || e?.code || 'no answer'})`)
+  }
+}
+
 // Records a failed job in MessyDesk (an error node under the process). `url_md` may be MD_URL or
 // the callback URL. Never throws: a failing error report must not hide the original error.
 export async function sendError(data, error, url_md) {
